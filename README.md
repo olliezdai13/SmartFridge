@@ -54,6 +54,22 @@ With the server running locally, confirm the health endpoint:
 ./scripts/healthcheck.sh
 ```
 
+## API
+
+### Upload an image
+
+POST `/api/images`
+
+- Content type: `multipart/form-data`
+- Form field: `image` (the photo file from the Raspberry Pi)
+
+```bash
+curl -X POST http://localhost:8000/api/images \
+  -F "image=@/path/to/fridge.jpg"
+```
+
+Successful uploads return `201 Created` with the stored filename. Images are saved under `data/uploads/` by default; override the location by setting the `SMARTFRIDGE_UPLOAD_DIR` environment variable.
+
 ## Status
 
 The repository now contains the initial Flask scaffold and Docker tooling. Expand the `smartfridge_backend` package with modules for image ingestion, AI enrichment, persistence, and REST endpoints as features are designed.
