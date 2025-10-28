@@ -7,8 +7,10 @@ Backend services for the SmartFridge project. The app accepts camera snapshots f
 ### 1. Configure environment secrets
 
 ```bash
-cp .env.example .env  # edit with your OpenAI credentials
+cp .env.example .env.local  # recommended: keep secrets out of version control
 ```
+
+When using Docker Compose, point to the file with `SMARTFRIDGE_ENV_FILE=.env.local` (see below). For quick experimentation you can edit `.env.example` directly, but avoid committing real credentials to source control.
 
 Required variables (read at startup):
 
@@ -18,13 +20,13 @@ Required variables (read at startup):
 Optional LLM tuning knobs:
 
 - `SMARTFRIDGE_LLM_MODEL` – defaults to `gpt-4o-mini`
-- `SMARTFRIDGE_LLM_SYSTEM_PROMPT` – system message injected ahead of user prompts
+- `SMARTFRIDGE_LLM_SYSTEM_PROMPT` – system message injected ahead of user prompts (also used when requests omit a prompt)
 
 Export them with your preferred shell tooling. One option for local work:
 
 ```bash
 set -a
-source .env
+source .env.local  # or .env.example if you are just experimenting
 set +a
 ```
 
@@ -35,6 +37,15 @@ set +a
 ```bash
 docker compose up --build
 ```
+
+To target a different env file (e.g., staging vs. production) set `SMARTFRIDGE_ENV_FILE` when invoking Compose:
+
+```bash
+SMARTFRIDGE_ENV_FILE=.env.local docker compose up --build
+SMARTFRIDGE_ENV_FILE=.env.staging docker compose up --build
+```
+
+By default the service loads variables from `.env.example` so the container has sane defaults even without overrides.
 
 **Local virtualenv**
 
@@ -56,7 +67,7 @@ Verify the health check once the server is live:
 ## LLM Integration
 
 - The server wires up an OpenAI Responses client during startup when an API key is present.
-- `/api/llm` accepts an uploaded image filename plus a prompt and returns the model's plain-text answer.
+- `/api/llm` accepts an uploaded image filename (prompt optional) and returns the model's plain-text answer.
 - Errors surface as JSON with appropriate HTTP codes (`400` validation, `404` missing image, `503` when the client is not configured).
 - Future work: ingest responses into storage, enrich result payloads, and feed the data back into the inventory service.
 
@@ -70,7 +81,7 @@ curl -X POST http://localhost:8000/api/images \
 # Pass it to the LLM
 curl -X POST http://localhost:8000/api/llm \
   -H "Content-Type: application/json" \
-  -d '{"image_name": "fridge_20240718T194501Z.jpg", "prompt": "List the produce that looks wilted."}'
+  -d '{"image_name": "fridge_20240718T194501Z.jpg"}'
 ```
 
 ## API Reference
@@ -83,7 +94,8 @@ curl -X POST http://localhost:8000/api/llm \
 
 ### POST `/api/llm`
 
-- Accepts JSON with `image_name` and `prompt`.
+- Accepts JSON with `image_name` (required) and `prompt` (optional override).
+- Falls back to the configured system prompt when `prompt` is omitted.
 - Returns `{ "result": "..." }` on success.
 - Expects the referenced file to exist in the upload directory and an API key to be configured.
 
@@ -99,3 +111,4 @@ curl -X POST http://localhost:8000/api/llm \
 
 - Keep Docker and dependency definitions aligned with code changes.
 - Update this README whenever endpoint behavior or environment requirements shift.
+- Store environment secrets outside of version control and create separate `.env.<stage>` files for each deployment target.

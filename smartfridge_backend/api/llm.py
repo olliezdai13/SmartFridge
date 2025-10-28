@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
@@ -34,11 +35,11 @@ def invoke_llm():
     payload = request.get_json(silent=True) or {}
     image_name = payload.get("image_name")
     prompt = payload.get("prompt")
+    if isinstance(prompt, str):
+        prompt = prompt.strip() or None
 
     if not image_name:
         return jsonify(error="image_name is required"), 400
-    if not prompt:
-        return jsonify(error="prompt is required"), 400
 
     try:
         image_path = _resolve_image_path(image_name)
@@ -56,8 +57,14 @@ def invoke_llm():
     with image_path.open("rb") as fp:
         image_bytes = fp.read()
 
+    mime_type, _ = mimetypes.guess_type(image_path.name)
+
     try:
-        result_text = client.analyze_image(prompt=prompt, image_bytes=image_bytes)
+        result_text = client.analyze_image(
+            image_bytes=image_bytes,
+            prompt=prompt,
+            mime_type=mime_type,
+        )
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     except Exception as exc:  # pragma: no cover - surface upstream errors

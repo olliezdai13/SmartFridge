@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: smartfridge-backend
+    env_file:
+      - ${SMARTFRIDGE_ENV_FILE:-.env.example}
     ports:
       - "8000:8000"
     environment:

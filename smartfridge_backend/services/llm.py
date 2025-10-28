@@ -26,14 +26,27 @@ class VisionLLMClient:
         self._settings = settings
         self._client = OpenAI(api_key=settings.api_key)
 
-    def analyze_image(self, *, prompt: str, image_bytes: bytes) -> str:
+    def analyze_image(
+        self,
+        *,
+        image_bytes: bytes,
+        prompt: str | None = None,
+        mime_type: str | None = None,
+    ) -> str:
         """Send the given prompt and image to the configured LLM."""
-        if not prompt:
-            raise ValueError("prompt is required")
         if not image_bytes:
             raise ValueError("image_bytes is empty")
 
         image_base64 = base64.b64encode(image_bytes).decode("ascii")
+
+        user_text = (prompt or "").strip() or self._settings.system_prompt
+        if not user_text:
+            raise ValueError(
+                "prompt is required when SMARTFRIDGE_LLM_SYSTEM_PROMPT is not set"
+            )
+
+        mime = (mime_type or "image/jpeg").strip() or "image/jpeg"
+        data_uri = f"data:{mime};base64,{image_base64}"
 
         content = []
         if self._settings.system_prompt:
@@ -42,7 +55,7 @@ class VisionLLMClient:
                     "role": "system",
                     "content": [
                         {
-                            "type": "text",
+                            "type": "input_text",
                             "text": self._settings.system_prompt,
                         }
                     ],
@@ -53,8 +66,8 @@ class VisionLLMClient:
             {
                 "role": "user",
                 "content": [
-                    {"type": "input_text", "text": prompt},
-                    {"type": "input_image", "image_base64": image_base64},
+                    {"type": "input_text", "text": user_text},
+                    {"type": "input_image", "image_url": data_uri},
                 ],
             }
         )
