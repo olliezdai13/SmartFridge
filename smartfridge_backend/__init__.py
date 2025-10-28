@@ -1,9 +1,9 @@
 import os
-from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, request
-from werkzeug.utils import secure_filename
+from flask import Flask, jsonify
+
+from smartfridge_backend.api import init_app as init_api
 
 
 def create_app() -> Flask:
@@ -20,29 +20,7 @@ def create_app() -> Flask:
     def healthcheck():
         return jsonify(status="ok")
 
-    @app.post("/api/images")
-    def upload_image():
-        """Receive an image upload from the Raspberry Pi client."""
-        if "image" not in request.files:
-            return jsonify(error="missing file part 'image'"), 400
-
-        image_file = request.files["image"]
-        if image_file.filename == "":
-            return jsonify(error="empty filename"), 400
-
-        safe_name = secure_filename(image_file.filename) or "upload"
-        stem = Path(safe_name).stem or "upload"
-        suffix = Path(safe_name).suffix
-        timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        filename = f"{stem}_{timestamp}{suffix}" if suffix else f"{stem}_{timestamp}"
-
-        destination = app.config["UPLOAD_DIR"] / filename
-        image_file.save(destination)
-
-        return (
-            jsonify(filename=filename, upload_dir=str(app.config["UPLOAD_DIR"])),
-            201,
-        )
+    init_api(app)
 
     return app
 

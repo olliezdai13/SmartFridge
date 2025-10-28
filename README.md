@@ -17,7 +17,9 @@ This repository hosts the backend for the SmartFridge project, a student-built p
 
 ## Project Structure
 
-- `smartfridge_backend/` – Flask application package with a lightweight health check route and space for future API modules.
+- `smartfridge_backend/` – Flask application package and app factory.
+- `smartfridge_backend/api/` – Blueprints that expose HTTP endpoints (e.g., image uploads).
+- `smartfridge_backend/services/` – Business logic helpers used by the API layer.
 - `wsgi.py` – Gunicorn entry point that exposes the Flask application.
 - `requirements.txt` – Python dependencies installed into the Docker image.
 - `Dockerfile` – Production-ready image using `gunicorn` and Python 3.12.
