@@ -120,4 +120,4 @@ data/uploads/
 images/
 
 # any environment vars
-*.env
+*.env*

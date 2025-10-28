@@ -1,91 +1,101 @@
 # SmartFridge Backend
 
-This repository hosts the backend for the SmartFridge project, a student-built platform that ingests camera snapshots from a Raspberry Pi-powered fridge, enriches them with AI, and exposes the results to companion apps. The backend is packaged for deployment on a small VPS via Docker.
+Backend services for the SmartFridge project. The app accepts camera snapshots from the Raspberry Pi fridge, stores them, and lets us poke a vision-capable LLM until the full ingestion pipeline is ready.
 
-## Stack Overview
+## Quick Start
 
-- **Flask** – Lightweight Python framework handling HTTP endpoints for image uploads, inventory queries, and business logic orchestration.
-- **Caddy** – Front-door web server and reverse proxy that terminates TLS, handles automatic Let’s Encrypt certificates, and forwards requests to the Flask app.
-- **Docker** – Containerizes the entire stack so the Raspberry Pi client and server share reproducible environments, simplifying deployment to a small cloud VPS.
+### 1. Configure environment secrets
 
-## Project Goals
+```bash
+cp .env.example .env  # edit with your OpenAI credentials
+```
 
-1. Receive and store fridge images uploaded from the Raspberry Pi.
-2. Run AI-backed analysis (LLM/computer vision) on the images to identify items and status.
-3. Serve REST endpoints that the mobile or web SmartFridge app can call for real-time updates and notifications.
-4. Stay lean enough for student infrastructure: one VPS, Docker Compose, and a straightforward deployment pipeline.
+Required variables (read at startup):
 
-## Project Structure
+- `SMARTFRIDGE_LLM_API_KEY` – OpenAI key used by the vision client (`OPENAI_API_KEY` works as a fallback)
+- `SMARTFRIDGE_UPLOAD_DIR` – optional override for the image storage directory (`data/uploads` by default)
 
-- `smartfridge_backend/` – Flask application package and app factory.
-- `smartfridge_backend/api/` – Blueprints that expose HTTP endpoints (e.g., image uploads).
-- `smartfridge_backend/services/` – Business logic helpers used by the API layer.
-- `wsgi.py` – Gunicorn entry point that exposes the Flask application.
-- `requirements.txt` – Python dependencies installed into the Docker image.
-- `Dockerfile` – Production-ready image using `gunicorn` and Python 3.12.
-- `docker-compose.yml` – Local orchestration that mirrors the target VPS setup.
+Optional LLM tuning knobs:
 
-## Getting Started
+- `SMARTFRIDGE_LLM_MODEL` – defaults to `gpt-4o-mini`
+- `SMARTFRIDGE_LLM_SYSTEM_PROMPT` – system message injected ahead of user prompts
 
-### Run with Docker (recommended)
+Export them with your preferred shell tooling. One option for local work:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+### 2. Run the server
+
+**Docker (recommended)**
 
 ```bash
 docker compose up --build
 ```
 
-The service listens on port `8000`. In production, place Caddy or your preferred reverse proxy in front of the container to terminate TLS and forward traffic to `smartfridge-backend:8000`.
-
-Verify the container is healthy:
-
-```bash
-./scripts/healthcheck.sh
-```
-
-### Manual setup (for quick iteration)
+**Local virtualenv**
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-FLASK_APP=smartfridge_backend flask run --host 0.0.0.0 --port 8000
+flask --app smartfridge_backend run --host 0.0.0.0 --port 8000
 ```
 
-### Bootstrap with Make
+`make install` bootstraps the virtualenv and dependencies if you prefer Make targets.
 
-```bash
-make install
-source .venv/bin/activate
-```
-
-The `install` target creates the virtual environment (if missing), upgrades `pip`, and installs dependencies from `requirements.txt`.
-
-With the server running locally, confirm the health endpoint:
+Verify the health check once the server is live:
 
 ```bash
 ./scripts/healthcheck.sh
 ```
 
-## API
+## LLM Integration
 
-### Upload an image
+- The server wires up an OpenAI Responses client during startup when an API key is present.
+- `/api/llm` accepts an uploaded image filename plus a prompt and returns the model's plain-text answer.
+- Errors surface as JSON with appropriate HTTP codes (`400` validation, `404` missing image, `503` when the client is not configured).
+- Future work: ingest responses into storage, enrich result payloads, and feed the data back into the inventory service.
 
-POST `/api/images`
-
-- Content type: `multipart/form-data`
-- Form field: `image` (the photo file from the Raspberry Pi)
+Smoke-test the workflow end-to-end:
 
 ```bash
+# Upload a photo
 curl -X POST http://localhost:8000/api/images \
   -F "image=@/path/to/fridge.jpg"
+
+# Pass it to the LLM
+curl -X POST http://localhost:8000/api/llm \
+  -H "Content-Type: application/json" \
+  -d '{"image_name": "fridge_20240718T194501Z.jpg", "prompt": "List the produce that looks wilted."}'
 ```
 
-Successful uploads return `201 Created` with the stored filename. Images are saved under `data/uploads/` by default; override the location by setting the `SMARTFRIDGE_UPLOAD_DIR` environment variable.
+## API Reference
 
-## Status
+### POST `/api/images`
 
-The repository now contains the initial Flask scaffold and Docker tooling. Expand the `smartfridge_backend` package with modules for image ingestion, AI enrichment, persistence, and REST endpoints as features are designed.
+- Uploads a fridge snapshot via `multipart/form-data` using the `image` form field.
+- Returns the stored filename and directory when successful (`201 Created`).
+- Storage location defaults to `data/uploads/` unless `SMARTFRIDGE_UPLOAD_DIR` is set.
+
+### POST `/api/llm`
+
+- Accepts JSON with `image_name` and `prompt`.
+- Returns `{ "result": "..." }` on success.
+- Expects the referenced file to exist in the upload directory and an API key to be configured.
+
+## Project Structure
+
+- `smartfridge_backend/` – Flask application package and app factory.
+- `smartfridge_backend/api/` – Blueprints for image and LLM endpoints.
+- `smartfridge_backend/services/` – Upload helpers and the OpenAI client wrapper.
+- `Dockerfile`, `docker-compose.yml` – Deployment and local development scaffolding.
+- `scripts/` – Handy utilities like the health check.
 
 ## Maintenance
 
-- Keep Docker and dependency definitions in sync with the evolving codebase.
-- After every major structural change to the application, update all relevant sections of this README so installation, deployment, and architecture notes stay accurate.
+- Keep Docker and dependency definitions aligned with code changes.
+- Update this README whenever endpoint behavior or environment requirements shift.
