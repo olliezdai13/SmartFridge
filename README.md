@@ -50,6 +50,15 @@ pip install -r requirements.txt
 FLASK_APP=smartfridge_backend flask run --host 0.0.0.0 --port 8000
 ```
 
+### Bootstrap with Make
+
+```bash
+make install
+source .venv/bin/activate
+```
+
+The `install` target creates the virtual environment (if missing), upgrades `pip`, and installs dependencies from `requirements.txt`.
+
 With the server running locally, confirm the health endpoint:
 
 ```bash
