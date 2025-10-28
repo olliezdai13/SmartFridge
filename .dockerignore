@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.git
+README.md
+LLM_INSTRUCTIONS.md
