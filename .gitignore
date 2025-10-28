@@ -118,3 +118,6 @@ dmypy.json
 # Project-specific artifacts
 data/uploads/
 images/
+
+# any environment vars
+*.env
