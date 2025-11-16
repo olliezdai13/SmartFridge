@@ -60,7 +60,7 @@ def invoke_llm():
     mime_type, _ = mimetypes.guess_type(image_path.name)
 
     try:
-        result_text = client.analyze_image(
+        llm_result = client.analyze_image(
             image_bytes=image_bytes,
             prompt=prompt,
             mime_type=mime_type,
@@ -71,4 +71,8 @@ def invoke_llm():
         current_app.logger.exception("vision LLM invocation failed")
         return jsonify(error="failed to query vision model"), 502
 
-    return jsonify(result=result_text)
+    response_payload: dict[str, object] = {"raw": llm_result.raw_text, "json": llm_result.parsed_json}
+    if llm_result.parsed_json is not None:
+        response_payload["result_json"] = llm_result.parsed_json
+
+    return jsonify(response_payload)

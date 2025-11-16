@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import base64
+import json
+import logging
 from dataclasses import dataclass
-from typing import Optional
+from json import JSONDecodeError
+from typing import Any, Optional
 
 from openai import OpenAI
 from openai.types.responses import Response
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -17,6 +22,14 @@ class VisionLLMSettings:
     api_key: str
     model: str = "gpt-4o-mini"
     system_prompt: Optional[str] = None
+
+
+@dataclass(slots=True)
+class VisionLLMResult:
+    """Container for the raw and parsed outputs from the vision model."""
+
+    raw_text: str
+    parsed_json: Any | None
 
 
 class VisionLLMClient:
@@ -32,7 +45,7 @@ class VisionLLMClient:
         image_bytes: bytes,
         prompt: str | None = None,
         mime_type: str | None = None,
-    ) -> str:
+    ) -> VisionLLMResult:
         """Send the given prompt and image to the configured LLM."""
         if not image_bytes:
             raise ValueError("image_bytes is empty")
@@ -77,7 +90,30 @@ class VisionLLMClient:
             input=content,
         )
 
-        return response.output_text
+        output_text = response.output_text
+        return VisionLLMResult(
+            raw_text=output_text,
+            parsed_json=self._attempt_json_parse(output_text),
+        )
+
+    @staticmethod
+    def _attempt_json_parse(text: str) -> Any | None:
+        """Try to convert the LLM's text output into JSON."""
+        candidate = (text or "").strip()
+        if not candidate:
+            return None
+
+        start = candidate.find("{")
+        end = candidate.rfind("}")
+        if start == -1 or end == -1 or end < start:
+            return None
+        candidate = candidate[start : end + 1]
+
+        try:
+            return json.loads(candidate)
+        except JSONDecodeError:
+            logger.debug("LLM output was not valid JSON", exc_info=True)
+            return None
 
 
 def init_vision_llm_client(settings: VisionLLMSettings) -> VisionLLMClient:

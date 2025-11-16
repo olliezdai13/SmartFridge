@@ -96,7 +96,7 @@ curl -X POST http://localhost:8000/api/llm \
 
 - Accepts JSON with `image_name` (required) and `prompt` (optional override).
 - Falls back to the configured system prompt when `prompt` is omitted.
-- Returns `{ "result": "..." }` on success.
+- Returns `{ "result": "...", "result_json": { ... } }` when the model output is valid JSON (`result_json` is omitted when decoding fails).
 - Expects the referenced file to exist in the upload directory and an API key to be configured.
 
 ## Project Structure
