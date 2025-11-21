@@ -1,8 +1,11 @@
 import os
 
 from flask import Flask, jsonify
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from smartfridge_backend.api import init_app as init_api
+from smartfridge_backend.models import get_database_url
 from smartfridge_backend.services.llm import (
     VisionLLMSettings,
     init_vision_llm_client,
@@ -16,6 +19,8 @@ from smartfridge_backend.services.storage import (
 def create_app() -> Flask:
     """Application factory for the SmartFridge backend."""
     app = Flask(__name__)
+
+    _init_database(app)
 
     storage_bucket = os.environ.get("SMARTFRIDGE_S3_BUCKET")
     if storage_bucket:
@@ -61,6 +66,27 @@ def create_app() -> Flask:
     init_api(app)
 
     return app
+
+
+def _init_database(app: Flask) -> None:
+    """Configure the SQLAlchemy session factory for request handlers."""
+
+    try:
+        database_url = get_database_url()
+    except RuntimeError:
+        app.logger.warning(
+            "DATABASE_URL not set; database-backed features disabled"
+        )
+        return
+
+    engine = create_engine(database_url, pool_pre_ping=True)
+    SessionLocal = sessionmaker(
+        bind=engine,
+        autoflush=False,
+        expire_on_commit=False,
+    )
+    app.extensions["db_engine"] = engine
+    app.extensions["db_sessionmaker"] = SessionLocal
 
 
 app = create_app()

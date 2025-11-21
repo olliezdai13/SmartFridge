@@ -74,13 +74,9 @@ class FridgeSnapshot(TimestampMixin, Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    captured_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    source: Mapped[str] = mapped_column(
-        String(64), default="llm", server_default=text("'llm'::text"), nullable=False
-    )
-    raw_response: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    image_bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    image_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    image_filename: Mapped[str] = mapped_column(String(255), nullable=False)
 
     user: Mapped[User] = relationship(back_populates="snapshots")
     items: Mapped[list["SnapshotItem"]] = relationship(
@@ -111,6 +107,7 @@ class SnapshotItem(Base):
     unit: Mapped[Optional[str]] = mapped_column(String(32))
     confidence: Mapped[Optional[Float]] = mapped_column(Float)
     notes: Mapped[Optional[str]] = mapped_column(Text)
+    raw_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
 
     snapshot: Mapped[FridgeSnapshot] = relationship(back_populates="items")
     product: Mapped[Product] = relationship(back_populates="snapshot_items")

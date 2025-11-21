@@ -83,7 +83,6 @@ Verify the health check once the server is live:
 - The server wires up an OpenAI Responses client during startup when an API key is present.
 - `/api/snapshot` accepts `multipart/form-data` with `image` (required) and `prompt` (optional) in a single request.
 - The backend persists the photo into the configured S3 bucket (LocalStack in development), queries the vision model, and responds with the raw text plus best-effort JSON parsing.
-- A placeholder payload (`pipeline.status === "pending"`) marks where the upcoming data-cleaning pipeline will plug in.
 - Errors surface as JSON with appropriate HTTP codes (`400` validation, `503` when the client is not configured, etc.).
 
 Smoke-test the workflow end-to-end:
@@ -100,7 +99,7 @@ curl -X POST http://localhost:8000/api/snapshot \
 
 - Uploads a fridge snapshot via `multipart/form-data` using the `image` form field.
 - Optional `prompt` overrides the configured system prompt for the LLM call.
-- Returns the stored filename, S3 bucket/key, LLM output (`raw`, `json`, `result_json`), and `pipeline` placeholder metadata (`201 Created`).
+- Returns the stored filename, S3 bucket/key, LLM output (`raw`, `json`, `result_json`). (`201 Created`).
 - Storage is backed by S3-compatible object storage; in development, LocalStack provides the bucket defined in `SMARTFRIDGE_S3_BUCKET`.
 
 ## Local Object Storage (LocalStack)
