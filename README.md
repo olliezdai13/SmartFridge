@@ -6,18 +6,15 @@ Backend services for the SmartFridge project. The app accepts camera snapshots f
 
 ### 1. Configure environment secrets
 
-```bash
-cp .env.example .env.local  # recommended: keep secrets out of version control
-```
-
-When using Docker Compose, point to the file with `SMARTFRIDGE_ENV_FILE=.env.local` (see below). For quick experimentation you can edit `.env.example` directly, but avoid committing real credentials to source control.
+All runtime configuration lives in `.env.local`. Update the values in that file before starting services. If you need multiple variants (e.g., staging), create another file such as `.env.staging` and point Docker Compose at it via `SMARTFRIDGE_ENV_FILE` (details below).
 
 Required variables (read at startup):
 
 - `SMARTFRIDGE_LLM_API_KEY` – OpenAI key used by the vision client (`OPENAI_API_KEY` works as a fallback)
-- `SMARTFRIDGE_UPLOAD_DIR` – optional override for the image storage directory (`data/uploads` by default)
 - `DATABASE_URL` – SQLAlchemy-style Postgres URL (use the psycopg dialect, e.g. `postgresql+psycopg://smartfridge:smartfridge@postgres:5432/smartfridge`)
 - `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` – credentials injected into the bundled Postgres container (only needed if you override the defaults)
+- `SMARTFRIDGE_S3_BUCKET`, `SMARTFRIDGE_S3_REGION`, `SMARTFRIDGE_S3_ENDPOINT_URL`, `SMARTFRIDGE_S3_BASE_PREFIX` – configure where snapshots are stored (point at LocalStack for development or an actual S3 endpoint in production)
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` – credentials the storage client uses (LocalStack accepts any values; production requires real IAM secrets or roles)
 
 Optional LLM tuning knobs:
 
@@ -28,7 +25,7 @@ Export them with your preferred shell tooling. One option for local work:
 
 ```bash
 set -a
-source .env.local  # or .env.example if you are just experimenting
+source .env.local
 set +a
 ```
 
@@ -37,17 +34,17 @@ set +a
 **Docker (recommended)**
 
 ```bash
-docker compose up --build postgres smartfridge-backend
+docker compose up --build
 ```
 
-To target a different env file (e.g., staging vs. production) set `SMARTFRIDGE_ENV_FILE` when invoking Compose:
+This brings up Postgres, LocalStack (for the S3-compatible bucket), and the Flask API in one shot. To target a different env file (e.g., staging vs. production) set `SMARTFRIDGE_ENV_FILE` when invoking Compose:
 
 ```bash
-SMARTFRIDGE_ENV_FILE=.env.local docker compose up --build postgres smartfridge-backend
-SMARTFRIDGE_ENV_FILE=.env.staging docker compose up --build postgres smartfridge-backend
+SMARTFRIDGE_ENV_FILE=.env.local docker compose up --build
+SMARTFRIDGE_ENV_FILE=.env.staging docker compose up --build
 ```
 
-By default the service loads variables from `.env.example` so the container has sane defaults even without overrides.
+By default the service loads variables from `.env.local` so the container has sane defaults even without overrides.
 
 **Local virtualenv**
 
@@ -81,47 +78,51 @@ Verify the health check once the server is live:
 ./scripts/healthcheck.sh
 ```
 
-## LLM Integration
+## Snapshot Workflow
 
 - The server wires up an OpenAI Responses client during startup when an API key is present.
-- `/api/llm` accepts an uploaded image filename (prompt optional) and returns the model's plain-text answer.
-- Errors surface as JSON with appropriate HTTP codes (`400` validation, `404` missing image, `503` when the client is not configured).
-- Future work: ingest responses into storage, enrich result payloads, and feed the data back into the inventory service.
+- `/api/snapshot` accepts `multipart/form-data` with `image` (required) and `prompt` (optional) in a single request.
+- The backend persists the photo into the configured S3 bucket (LocalStack in development), queries the vision model, and responds with the raw text plus best-effort JSON parsing.
+- A placeholder payload (`pipeline.status === "pending"`) marks where the upcoming data-cleaning pipeline will plug in.
+- Errors surface as JSON with appropriate HTTP codes (`400` validation, `503` when the client is not configured, etc.).
 
 Smoke-test the workflow end-to-end:
 
 ```bash
-# Upload a photo
-curl -X POST http://localhost:8000/api/images \
-  -F "image=@/path/to/fridge.jpg"
-
-# Pass it to the LLM
-curl -X POST http://localhost:8000/api/llm \
-  -H "Content-Type: application/json" \
-  -d '{"image_name": "fridge_20240718T194501Z.jpg"}'
+curl -X POST http://localhost:8000/api/snapshot \
+  -F "image=@/path/to/fridge.jpg" \
+  -F "prompt=List items and expiration dates"
 ```
 
 ## API Reference
 
-### POST `/api/images`
+### POST `/api/snapshot`
 
 - Uploads a fridge snapshot via `multipart/form-data` using the `image` form field.
-- Returns the stored filename and directory when successful (`201 Created`).
-- Storage location defaults to `data/uploads/` unless `SMARTFRIDGE_UPLOAD_DIR` is set.
+- Optional `prompt` overrides the configured system prompt for the LLM call.
+- Returns the stored filename, S3 bucket/key, LLM output (`raw`, `json`, `result_json`), and `pipeline` placeholder metadata (`201 Created`).
+- Storage is backed by S3-compatible object storage; in development, LocalStack provides the bucket defined in `SMARTFRIDGE_S3_BUCKET`.
 
-### POST `/api/llm`
+## Local Object Storage (LocalStack)
 
-- Accepts JSON with `image_name` (required) and `prompt` (optional override).
-- Falls back to the configured system prompt when `prompt` is omitted.
-- Returns `{ "result": "...", "result_json": { ... } }` when the model output is valid JSON (`result_json` is omitted when decoding fails).
-- Expects the referenced file to exist in the upload directory and an API key to be configured.
+- `docker compose up` now starts a `localstack` container alongside the backend and Postgres.
+- The helper script in `scripts/localstack-init-s3.sh` automatically creates the `smartfridge-snapshots` bucket via `awslocal`.
+- Default credentials/endpoint live in `.env.local` (the endpoint is `http://localstack:4566` so containers talk to the LocalStack service over Docker's network). When running the Flask app outside of Docker, export `SMARTFRIDGE_S3_ENDPOINT_URL=http://localhost:4566` so the client reaches LocalStack from the host machine.
+- Objects are written under `snapshots/user-<id>/...`; for now the snapshot API stores uploads for `user-1` until multi-user plumbing is in place.
+- Inspect stored snapshots via the LocalStack CLI:
+
+  ```bash
+  docker compose exec localstack awslocal s3 ls s3://smartfridge-snapshots --recursive
+  ```
+
+- Objects persist until you destroy the LocalStack container. Use `docker compose down -v` to wipe all mock S3 data (or remove individual keys with `awslocal s3 rm`).
 
 ## Project Structure
 
 - `smartfridge_backend/` – Flask application package and app factory.
-- `smartfridge_backend/api/` – Blueprints for image and LLM endpoints.
+- `smartfridge_backend/api/` – Blueprint that owns the `/api/snapshot` endpoint.
 - `smartfridge_backend/models/` – SQLAlchemy models and metadata used by Alembic.
-- `smartfridge_backend/services/` – Upload helpers and the OpenAI client wrapper.
+- `smartfridge_backend/services/` – Upload helpers, the OpenAI client wrapper, and the S3 storage client.
 - `Dockerfile`, `docker-compose.yml` – Deployment and local development scaffolding.
 - `scripts/` – Handy utilities like the health check.
 

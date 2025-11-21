@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 
 from flask import Flask, jsonify
 
@@ -8,17 +7,33 @@ from smartfridge_backend.services.llm import (
     VisionLLMSettings,
     init_vision_llm_client,
 )
+from smartfridge_backend.services.storage import (
+    SnapshotStorageSettings,
+    init_snapshot_storage,
+)
 
 
 def create_app() -> Flask:
     """Application factory for the SmartFridge backend."""
     app = Flask(__name__)
 
-    upload_dir = Path(
-        os.environ.get("SMARTFRIDGE_UPLOAD_DIR", "data/uploads")
-    ).resolve()
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    app.config["UPLOAD_DIR"] = upload_dir
+    storage_bucket = os.environ.get("SMARTFRIDGE_S3_BUCKET")
+    if storage_bucket:
+        storage_settings = SnapshotStorageSettings(
+            bucket=storage_bucket,
+            region_name=os.environ.get("SMARTFRIDGE_S3_REGION"),
+            endpoint_url=os.environ.get("SMARTFRIDGE_S3_ENDPOINT_URL"),
+            base_prefix=os.environ.get("SMARTFRIDGE_S3_BASE_PREFIX", "snapshots"),
+            access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+            secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+        )
+        app.extensions["snapshot_storage"] = init_snapshot_storage(
+            storage_settings
+        )
+    else:
+        app.logger.warning(
+            "SMARTFRIDGE_S3_BUCKET not set; snapshot storage disabled"
+        )
 
     @app.get("/healthz")
     def healthcheck():

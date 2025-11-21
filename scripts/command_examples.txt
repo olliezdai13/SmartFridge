@@ -1,5 +1,4 @@
-curl -X POST http://localhost:8000/api/images \
+curl -X POST http://localhost:8000/api/snapshot \
   -F "image=@/Users/oliverdai/dev/Cleantech/SmartFridge/images/Fridge01.jpg"
 
 ./healthcheck.sh
-

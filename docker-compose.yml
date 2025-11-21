@@ -5,13 +5,14 @@ services:
       dockerfile: Dockerfile
     container_name: smartfridge-backend
     env_file:
-      - ${SMARTFRIDGE_ENV_FILE:-.env.example}
+      - ${SMARTFRIDGE_ENV_FILE:-.env.local}
     ports:
       - "8000:8000"
     environment:
       - FLASK_ENV=production
     depends_on:
       - postgres
+      - localstack
     restart: unless-stopped
 
   postgres:
@@ -30,6 +31,19 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  localstack:
+    image: localstack/localstack:3.4
+    container_name: smartfridge-localstack
+    environment:
+      - SERVICES=s3
+      - AWS_DEFAULT_REGION=${SMARTFRIDGE_S3_REGION:-us-east-1}
+      - LS_LOG=warning
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./scripts/localstack-init-s3.sh:/etc/localstack/init/ready.d/s3.sh
+    restart: unless-stopped
 
 volumes:
   postgres-data:
