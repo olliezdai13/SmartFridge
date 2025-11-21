@@ -8,6 +8,7 @@ import mimetypes
 from flask import Blueprint, current_app, jsonify, request
 
 from smartfridge_backend.services.llm import VisionLLMClient
+from smartfridge_backend.services.normalization import normalize_product_name
 from smartfridge_backend.services.storage import (
     S3SnapshotStorage,
     SnapshotStorageError,
@@ -108,7 +109,15 @@ def create_snapshot():
         "json": llm_result.parsed_json,
     }
     if llm_result.parsed_json is not None:
-        llm_payload["result_json"] = llm_result.parsed_json
+        parsed_json = llm_result.parsed_json
+        if isinstance(parsed_json, dict):
+            normalized_result = {
+                normalize_product_name(key): value
+                for key, value in parsed_json.items()
+            }
+        else:
+            normalized_result = parsed_json
+        llm_payload["result_json"] = normalized_result
 
     pipeline_status = _placeholder_pipeline_step(llm_payload)
 
