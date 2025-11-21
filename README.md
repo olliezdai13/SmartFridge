@@ -16,6 +16,8 @@ Required variables (read at startup):
 
 - `SMARTFRIDGE_LLM_API_KEY` – OpenAI key used by the vision client (`OPENAI_API_KEY` works as a fallback)
 - `SMARTFRIDGE_UPLOAD_DIR` – optional override for the image storage directory (`data/uploads` by default)
+- `DATABASE_URL` – SQLAlchemy-style Postgres URL (use the psycopg dialect, e.g. `postgresql+psycopg://smartfridge:smartfridge@postgres:5432/smartfridge`)
+- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` – credentials injected into the bundled Postgres container (only needed if you override the defaults)
 
 Optional LLM tuning knobs:
 
@@ -35,14 +37,14 @@ set +a
 **Docker (recommended)**
 
 ```bash
-docker compose up --build
+docker compose up --build postgres smartfridge-backend
 ```
 
 To target a different env file (e.g., staging vs. production) set `SMARTFRIDGE_ENV_FILE` when invoking Compose:
 
 ```bash
-SMARTFRIDGE_ENV_FILE=.env.local docker compose up --build
-SMARTFRIDGE_ENV_FILE=.env.staging docker compose up --build
+SMARTFRIDGE_ENV_FILE=.env.local docker compose up --build postgres smartfridge-backend
+SMARTFRIDGE_ENV_FILE=.env.staging docker compose up --build postgres smartfridge-backend
 ```
 
 By default the service loads variables from `.env.example` so the container has sane defaults even without overrides.
@@ -57,6 +59,21 @@ flask --app smartfridge_backend run --host 0.0.0.0 --port 8000
 ```
 
 `make install` bootstraps the virtualenv and dependencies if you prefer Make targets.
+
+### 3. Apply database migrations
+
+Alembic migrations live under `migrations/`. Run them whenever the schema changes:
+
+```bash
+# example: running locally against the Compose Postgres instance
+DATABASE_URL=postgresql+psycopg://smartfridge:smartfridge@localhost:5432/smartfridge \
+  alembic upgrade head
+
+# or, inside the container where DATABASE_URL already points at postgres
+docker compose exec smartfridge-backend alembic upgrade head
+```
+
+`alembic revision --autogenerate -m "..."` inspects the models in `smartfridge_backend/models/` and creates new migration files.
 
 Verify the health check once the server is live:
 
@@ -103,6 +120,7 @@ curl -X POST http://localhost:8000/api/llm \
 
 - `smartfridge_backend/` – Flask application package and app factory.
 - `smartfridge_backend/api/` – Blueprints for image and LLM endpoints.
+- `smartfridge_backend/models/` – SQLAlchemy models and metadata used by Alembic.
 - `smartfridge_backend/services/` – Upload helpers and the OpenAI client wrapper.
 - `Dockerfile`, `docker-compose.yml` – Deployment and local development scaffolding.
 - `scripts/` – Handy utilities like the health check.
