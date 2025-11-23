@@ -30,6 +30,8 @@ bp = Blueprint("snapshot", __name__, url_prefix="/api")
 DEFAULT_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 DEFAULT_USER_EMAIL = "demo@smartfridge.local"
 DEFAULT_USER_NAME = "Demo User"
+_MAX_RAW_LLM_OUTPUT_BYTES = 16_000
+_TRUNCATION_SUFFIX = " [truncated]"
 
 
 def _get_llm_client() -> VisionLLMClient:
@@ -83,7 +85,7 @@ def _persist_snapshot_metadata(
     user: User,
     stored_image: StoredImage,
 ) -> FridgeSnapshot:
-    """Create a fridge_snapshots row tied to the stored object."""
+    """Create a snapshots row tied to the stored object."""
 
     snapshot = FridgeSnapshot(
         user_id=user.id,
@@ -98,29 +100,6 @@ def _persist_snapshot_metadata(
 
 
 _DEFAULT_ITEM_QUANTITY = 1
-
-
-def _clean_string(value: object) -> str | None:
-    if isinstance(value, str):
-        value = value.strip()
-        return value or None
-    return None
-
-
-def _coerce_float(value: object) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        candidate = value.strip()
-        if not candidate:
-            return None
-        try:
-            return float(candidate)
-        except ValueError:
-            return None
-    return None
 
 
 def _parse_quantity(value: object) -> int:
@@ -150,34 +129,12 @@ def _parse_quantity(value: object) -> int:
     return quantity if quantity > 0 else _DEFAULT_ITEM_QUANTITY
 
 
-def _extract_snapshot_item_fields(
-    payload: object,
-) -> tuple[int, str | None, float | None, str | None]:
-    quantity = _DEFAULT_ITEM_QUANTITY
-    unit = None
-    confidence = None
-    notes = None
-
-    if isinstance(payload, dict):
-        quantity = _parse_quantity(payload.get("quantity"))
-        unit = _clean_string(payload.get("unit") or payload.get("units"))
-        confidence = _coerce_float(payload.get("confidence"))
-        notes = _clean_string(payload.get("notes"))
-    else:
-        if isinstance(payload, (int, float, str)):
-            quantity = _parse_quantity(payload)
-        if isinstance(payload, str):
-            notes = _clean_string(payload)
-
-    return quantity, unit, confidence, notes
-
-
-def _get_or_create_product(session: Session, slug: str) -> Product:
+def _get_or_create_product(session: Session, name: str) -> Product:
     product = session.execute(
-        select(Product).where(Product.slug == slug)
+        select(Product).where(Product.name == name)
     ).scalar_one_or_none()
     if product is None:
-        product = Product(slug=slug, name=slug)
+        product = Product(name=name)
         session.add(product)
         session.flush()
     return product
@@ -193,24 +150,62 @@ def _persist_snapshot_items(
     session = _get_db_session()
     try:
         for normalized_name, payload in normalized_payload.items():
-            slug = (normalized_name or "").strip()
-            if not slug:
+            name = (normalized_name or "").strip()
+            if not name:
                 continue
-            product = _get_or_create_product(session, slug)
-            quantity, unit, confidence, notes = _extract_snapshot_item_fields(
-                payload
-            )
+            product = _get_or_create_product(session, name)
+            if isinstance(payload, dict):
+                quantity = _parse_quantity(payload.get("quantity"))
+            else:
+                quantity = _parse_quantity(payload)
             session.add(
                 SnapshotItem(
                     snapshot_id=snapshot.id,
                     product_id=product.id,
                     quantity=quantity,
-                    unit=unit,
-                    confidence=confidence,
-                    notes=notes,
                     raw_payload=payload,
                 )
             )
+        session.commit()
+    except SQLAlchemyError:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def _truncate_raw_llm_output(
+    raw_text: str | None,
+    *,
+    limit_bytes: int = _MAX_RAW_LLM_OUTPUT_BYTES,
+) -> str | None:
+    if not raw_text:
+        return None
+    encoded = raw_text.encode("utf-8")
+    if len(encoded) <= limit_bytes:
+        return raw_text
+    suffix_bytes = _TRUNCATION_SUFFIX.encode("utf-8")
+    if len(suffix_bytes) >= limit_bytes:
+        return _TRUNCATION_SUFFIX[:limit_bytes]
+    truncated_bytes = encoded[: limit_bytes - len(suffix_bytes)]
+    truncated_text = truncated_bytes.decode("utf-8", errors="ignore")
+    return f"{truncated_text}{_TRUNCATION_SUFFIX}"
+
+
+def _persist_raw_llm_output(
+    *,
+    snapshot_id: uuid.UUID,
+    raw_text: str | None,
+) -> None:
+    truncated = _truncate_raw_llm_output(raw_text)
+    if truncated is None:
+        return
+    session = _get_db_session()
+    try:
+        snapshot = session.get(FridgeSnapshot, snapshot_id)
+        if snapshot is None:
+            return
+        snapshot.raw_llm_output = truncated
         session.commit()
     except SQLAlchemyError:
         session.rollback()
@@ -318,6 +313,16 @@ def create_snapshot():
         current_app.logger.exception("vision LLM invocation failed")
         return jsonify(error="failed to query vision model"), 502
 
+    assert snapshot_record is not None
+    try:
+        _persist_raw_llm_output(
+            snapshot_id=snapshot_record.id,
+            raw_text=llm_result.raw_text,
+        )
+    except SQLAlchemyError:
+        current_app.logger.exception("failed to persist raw LLM output")
+        return jsonify(error="failed to persist raw LLM output"), 500
+
     parsed_json = llm_result.parsed_json
     if not isinstance(parsed_json, dict):
         current_app.logger.error("vision LLM did not return JSON object")
@@ -331,7 +336,6 @@ def create_snapshot():
         key: value for key, value in normalized_payload.items() if key
     }
 
-    assert snapshot_record is not None
     try:
         _persist_snapshot_items(
             snapshot=snapshot_record,
