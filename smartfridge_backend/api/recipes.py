@@ -1,8 +1,12 @@
-"""Recipe-related endpoints that prepare Spoonacular calls."""
+"""Recipe-related endpoints backed by the Spoonacular API."""
 
 from __future__ import annotations
 
+import os
+from typing import Mapping, Sequence
+
 from flask import Blueprint, current_app, jsonify
+import requests
 from sqlalchemy.exc import SQLAlchemyError
 
 from smartfridge_backend.api.deps import get_sessionmaker
@@ -17,12 +21,16 @@ bp = Blueprint("recipes", __name__, url_prefix="/api")
 SPOONACULAR_FIND_BY_INGREDIENTS_URL = (
     "https://api.spoonacular.com/recipes/findByIngredients"
 )
+SPOONACULAR_API_KEY_ENV = "SPOONACULAR_API_KEY"
 _DEFAULT_RECIPE_LIMIT = 5
+_SPOONACULAR_TIMEOUT_SECONDS = 10
+_ParamValue = str | bytes | int | float | bool | Sequence[str | bytes | int | float | bool]
+_RequestParams = Mapping[str, _ParamValue]
 
 
 def _prepare_spoonacular_query(
     items: list[InventoryItem]
-) -> dict[str, object]:
+) -> _RequestParams:
     """Shape fridge items into the query params Spoonacular expects."""
 
     ingredient_tokens: list[str] = []
@@ -49,9 +57,16 @@ def _prepare_spoonacular_query(
     }
 
 
+def _get_spoonacular_api_key() -> str:
+    api_key = os.environ.get(SPOONACULAR_API_KEY_ENV)
+    if not api_key:
+        raise RuntimeError(f"{SPOONACULAR_API_KEY_ENV} is not configured")
+    return api_key
+
+
 @bp.get("/recipes")
 def prepare_recipes_query():
-    """Return the latest fridge items and a Spoonacular-ready query."""
+    """Return the latest fridge items and Spoonacular recipe matches."""
 
     try:
         session_factory = get_sessionmaker()
@@ -75,17 +90,41 @@ def prepare_recipes_query():
             404,
         )
 
+    try:
+        api_key = _get_spoonacular_api_key()
+    except RuntimeError as exc:
+        return jsonify(error=str(exc)), 503
+
     spoonacular_query = _prepare_spoonacular_query(items)
+    try:
+        api_response = requests.get(
+            SPOONACULAR_FIND_BY_INGREDIENTS_URL,
+            params={**spoonacular_query, "apiKey": api_key},
+            timeout=_SPOONACULAR_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException:
+        current_app.logger.exception("failed to call Spoonacular API")
+        return jsonify(error="failed to reach Spoonacular API"), 502
+
+    if not api_response.ok:
+        current_app.logger.warning(
+            "Spoonacular API returned %s: %s",
+            api_response.status_code,
+            api_response.text[:512],
+        )
+        return jsonify(error="Spoonacular API request failed"), 502
+
+    try:
+        recipes = api_response.json()
+    except ValueError:
+        current_app.logger.exception("invalid Spoonacular API response")
+        return jsonify(error="invalid Spoonacular API response"), 502
 
     return jsonify(
         items=items,
         spoonacular_request={
             "endpoint": SPOONACULAR_FIND_BY_INGREDIENTS_URL,
             "query_params": spoonacular_query,
-            "api_key_env": "SPOONACULAR_API_KEY",
-            "note": (
-                "The backend does not call Spoonacular yet; invoke this URL "
-                "with your API key from the client or a future backend task."
-            ),
         },
+        recipes=recipes,
     )

@@ -21,9 +21,9 @@ Optional LLM tuning knobs:
 - `SMARTFRIDGE_LLM_MODEL` – defaults to the value in `smartfridge_backend/config/llm.py`
 - `SMARTFRIDGE_LLM_SYSTEM_PROMPT` – system message injected ahead of user prompts (also used when requests omit a prompt); default lives in `smartfridge_backend/config/llm.py`
 
-Optional recipe search integration:
+Optional recipe search integration (required for `/api/recipes`):
 
-- `SPOONACULAR_API_KEY` – Spoonacular Recipes API key used when calling `recipes/findByIngredients` (the backend currently only prepares the request)
+- `SPOONACULAR_API_KEY` – Spoonacular Recipes API key used when calling `recipes/findByIngredients`
 
 Export them with your preferred shell tooling. One option for local work:
 
@@ -108,19 +108,19 @@ curl -X POST http://localhost:8000/api/snapshot \
 
 ### GET `/api/recipes`
 
-- Returns the latest fridge inventory for the placeholder user plus Spoonacular-ready query params (no outbound API call yet).
-- Response includes `items` (name + quantity) and `spoonacular_request` with `endpoint`, `query_params` (`ingredients`, `number`, `ranking`, `ignorePantry`), and the `api_key_env` hint.
-- Use the provided `ingredients` string with your `SPOONACULAR_API_KEY` to call Spoonacular's `recipes/findByIngredients` endpoint directly:
+- Requires `SPOONACULAR_API_KEY` to be set.
+- Returns the latest fridge inventory for the placeholder user, the Spoonacular query params the backend used, and the recipes fetched from Spoonacular.
+- Response includes `items` (name + quantity), `spoonacular_request` with `endpoint` and `query_params` (`ingredients`, `number`, `ranking`, `ignorePantry`), and `recipes` (the parsed Spoonacular response).
+- Example:
 
   ```bash
-  curl "https://api.spoonacular.com/recipes/findByIngredients?ingredients=<ingredients>&number=5&ranking=1&ignorePantry=true&apiKey=$SPOONACULAR_API_KEY"
+  curl http://localhost:8000/api/recipes
   ```
 
 ## Spoonacular Recipes API
 
-- The backend shapes the latest fridge snapshot into query params for Spoonacular's `recipes/findByIngredients` endpoint; it intentionally does not call the API yet.
-- Set `SPOONACULAR_API_KEY` in `.env.local` (or your chosen env file) so clients can authenticate their Spoonacular requests.
-- Typical flow: hit `/api/recipes`, copy `spoonacular_request.query_params.ingredients`, then call Spoonacular with the URL above (or via your frontend) using your API key.
+- The backend shapes the latest fridge snapshot into query params and calls Spoonacular's `recipes/findByIngredients` endpoint directly.
+- Set `SPOONACULAR_API_KEY` in `.env.local` (or your chosen env file) so the backend can authenticate its Spoonacular requests.
 - Official docs: https://spoonacular.com/food-api/docs.
 
 ## Local Object Storage (LocalStack)

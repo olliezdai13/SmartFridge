@@ -26,6 +26,7 @@ from smartfridge_backend.services.storage import (
 )
 from smartfridge_backend.services.uploads import StoredImage, save_image_upload
 from smartfridge_backend.services.users import (
+    DEFAULT_USER_ID,
     get_or_create_default_user,
 )
 
@@ -59,13 +60,13 @@ def _get_or_create_request_user(session: Session) -> User:
     return get_or_create_default_user(session)
 
 
-def _persist_snapshot_metadata(
+def _add_snapshot_metadata(
     *,
     session: Session,
     user: User,
     stored_image: StoredImage,
 ) -> FridgeSnapshot:
-    """Create a snapshots row tied to the stored object."""
+    """Add a snapshot row to the session and flush so it has an id."""
 
     snapshot = FridgeSnapshot(
         user_id=user.id,
@@ -74,8 +75,7 @@ def _persist_snapshot_metadata(
         image_filename=stored_image.filename,
     )
     session.add(snapshot)
-    session.commit()
-    session.refresh(snapshot)
+    session.flush()
     return snapshot
 
 
@@ -120,38 +120,31 @@ def _get_or_create_product(session: Session, name: str) -> Product:
     return product
 
 
-def _persist_snapshot_items(
+def _add_snapshot_items(
     *,
+    session: Session,
     snapshot: FridgeSnapshot,
     normalized_payload: dict[str, Any],
 ) -> None:
     if not normalized_payload:
         return
-    session = get_db_session()
-    try:
-        for normalized_name, payload in normalized_payload.items():
-            name = (normalized_name or "").strip()
-            if not name:
-                continue
-            product = _get_or_create_product(session, name)
-            if isinstance(payload, dict):
-                quantity = _parse_quantity(payload.get("quantity"))
-            else:
-                quantity = _parse_quantity(payload)
-            session.add(
-                SnapshotItem(
-                    snapshot_id=snapshot.id,
-                    product_id=product.id,
-                    quantity=quantity,
-                    raw_payload=payload,
-                )
+    for normalized_name, payload in normalized_payload.items():
+        name = (normalized_name or "").strip()
+        if not name:
+            continue
+        product = _get_or_create_product(session, name)
+        if isinstance(payload, dict):
+            quantity = _parse_quantity(payload.get("quantity"))
+        else:
+            quantity = _parse_quantity(payload)
+        session.add(
+            SnapshotItem(
+                snapshot_id=snapshot.id,
+                product_id=product.id,
+                quantity=quantity,
+                raw_payload=payload,
             )
-        session.commit()
-    except SQLAlchemyError:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+        )
 
 
 def _truncate_raw_llm_output(
@@ -172,26 +165,17 @@ def _truncate_raw_llm_output(
     return f"{truncated_text}{_TRUNCATION_SUFFIX}"
 
 
-def _persist_raw_llm_output(
+def _attach_raw_llm_output(
     *,
-    snapshot_id: uuid.UUID,
+    session: Session,
+    snapshot: FridgeSnapshot,
     raw_text: str | None,
 ) -> None:
+    """Attach truncated LLM output to the snapshot in the current transaction."""
     truncated = _truncate_raw_llm_output(raw_text)
     if truncated is None:
         return
-    session = get_db_session()
-    try:
-        snapshot = session.get(FridgeSnapshot, snapshot_id)
-        if snapshot is None:
-            return
-        snapshot.raw_llm_output = truncated
-        session.commit()
-    except SQLAlchemyError:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+    snapshot.raw_llm_output = truncated
 
 
 def _extract_prompt() -> str | None:
@@ -204,6 +188,7 @@ def _extract_prompt() -> str | None:
     else:
         prompt = None
     return prompt
+
 
 @bp.post("/snapshot")
 def create_snapshot():
@@ -219,58 +204,17 @@ def create_snapshot():
     except RuntimeError as exc:
         return jsonify(error=str(exc)), 503
 
-    session: Session | None = None
-    snapshot_record: FridgeSnapshot | None = None
-    try:
-        session = get_db_session()
-        request_user = _get_or_create_request_user(session)
-    except RuntimeError as exc:
-        return jsonify(error=str(exc)), 503
-    except SQLAlchemyError:
-        if session is not None:
-            session.rollback()
-            session.close()
-            session = None
-        current_app.logger.exception("failed to load snapshot user")
-        return jsonify(error="failed to prepare snapshot owner"), 500
-
     try:
         stored_image, image_bytes = save_image_upload(
             image_file,
             storage,
-            user_id=str(request_user.id),
+            user_id=str(DEFAULT_USER_ID),
         )
     except ValueError as exc:
-        if session is not None:
-            session.rollback()
-            session.close()
-            session = None
         return jsonify(error=str(exc)), 400
     except SnapshotStorageError as exc:
-        if session is not None:
-            session.rollback()
-            session.close()
-            session = None
         current_app.logger.exception("snapshot storage failure")
         return jsonify(error=str(exc)), 502
-
-    try:
-        snapshot_record = _persist_snapshot_metadata(
-            session=session,
-            user=request_user,
-            stored_image=stored_image,
-        )
-    except SQLAlchemyError:
-        if session is not None:
-            session.rollback()
-            session.close()
-            session = None
-        current_app.logger.exception("failed to persist snapshot metadata")
-        return jsonify(error="failed to persist snapshot metadata"), 500
-    finally:
-        if session is not None:
-            session.close()
-            session = None
 
     try:
         client = _get_llm_client()
@@ -293,16 +237,10 @@ def create_snapshot():
         current_app.logger.exception("vision LLM invocation failed")
         return jsonify(error="failed to query vision model"), 502
 
-    assert snapshot_record is not None
-    try:
-        _persist_raw_llm_output(
-            snapshot_id=snapshot_record.id,
-            raw_text=llm_result.raw_text,
-        )
-    except SQLAlchemyError:
-        current_app.logger.exception("failed to persist raw LLM output")
-        return jsonify(error="failed to persist raw LLM output"), 500
-
+    raw_text = (llm_result.raw_text or "").strip()
+    if not raw_text:
+        current_app.logger.error("vision LLM returned empty output")
+        return jsonify(error="vision model returned empty output"), 502
     parsed_json = llm_result.parsed_json
     if not isinstance(parsed_json, dict):
         current_app.logger.error("vision LLM did not return JSON object")
@@ -316,13 +254,46 @@ def create_snapshot():
         key: value for key, value in normalized_payload.items() if key
     }
 
+    session: Session | None = None
     try:
-        _persist_snapshot_items(
+        session = get_db_session()
+        request_user = _get_or_create_request_user(session)
+    except RuntimeError as exc:
+        return jsonify(error=str(exc)), 503
+    except SQLAlchemyError:
+        if session is not None:
+            session.rollback()
+            session.close()
+            session = None
+        current_app.logger.exception("failed to load snapshot user")
+        return jsonify(error="failed to prepare snapshot owner"), 500
+
+    try:
+        snapshot_record = _add_snapshot_metadata(
+            session=session,
+            user=request_user,
+            stored_image=stored_image,
+        )
+        _attach_raw_llm_output(
+            session=session,
+            snapshot=snapshot_record,
+            raw_text=raw_text,
+        )
+        _add_snapshot_items(
+            session=session,
             snapshot=snapshot_record,
             normalized_payload=normalized_payload,
         )
+        session.commit()
     except SQLAlchemyError:
-        current_app.logger.exception("failed to persist snapshot items")
-        return jsonify(error="failed to persist snapshot items"), 500
+        if session is not None:
+            session.rollback()
+            session.close()
+            session = None
+        current_app.logger.exception("failed to persist snapshot data")
+        return jsonify(error="failed to persist snapshot data"), 500
+    finally:
+        if session is not None:
+            session.close()
 
     return ("", 201)
