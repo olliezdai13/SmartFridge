@@ -114,6 +114,8 @@ curl -X POST http://localhost:8000/api/snapshot \
   docker compose exec localstack awslocal s3 ls s3://smartfridge-snapshots --recursive
   ```
 
+- View objects directly via the LocalStack HTTP endpoint from your browser or with `curl` using the path `http://localhost:4566/smartfridge-snapshots/snapshots/user-<userid>/<filename>`. Example: `http://localhost:4566/smartfridge-snapshots/snapshots/user-00000000-0000-0000-0000-000000000001/20251121T212914Z.jpeg`.
+
 - Objects persist until you destroy the LocalStack container. Use `docker compose down -v` to wipe all mock S3 data (or remove individual keys with `awslocal s3 rm`).
 
 ## Project Structure
