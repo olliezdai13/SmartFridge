@@ -5,6 +5,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from smartfridge_backend.api import init_app as init_api
+from smartfridge_backend.config import (
+    DEFAULT_LLM_MODEL,
+    DEFAULT_LLM_SYSTEM_PROMPT,
+)
 from smartfridge_backend.models import get_database_url
 from smartfridge_backend.services.llm import (
     VisionLLMSettings,
@@ -47,8 +51,10 @@ def create_app() -> Flask:
     llm_api_key = os.environ.get("SMARTFRIDGE_LLM_API_KEY") or os.environ.get(
         "OPENAI_API_KEY"
     )
-    llm_model = os.environ.get("SMARTFRIDGE_LLM_MODEL", "gpt-4o-mini")
-    llm_system_prompt = os.environ.get("SMARTFRIDGE_LLM_SYSTEM_PROMPT")
+    llm_model = os.environ.get("SMARTFRIDGE_LLM_MODEL", DEFAULT_LLM_MODEL)
+    llm_system_prompt = os.environ.get(
+        "SMARTFRIDGE_LLM_SYSTEM_PROMPT", DEFAULT_LLM_SYSTEM_PROMPT
+    )
 
     if llm_api_key:
         app.extensions["vision_llm_client"] = init_vision_llm_client(

@@ -6,7 +6,7 @@ Backend services for the SmartFridge project. The app accepts camera snapshots f
 
 ### 1. Configure environment secrets
 
-All runtime configuration lives in `.env.local`. Update the values in that file before starting services. If you need multiple variants (e.g., staging), create another file such as `.env.staging` and point Docker Compose at it via `SMARTFRIDGE_ENV_FILE` (details below).
+Secrets and deployment-specific values live in `.env.local`. Update that file before starting services. If you need multiple variants (e.g., staging), create another file such as `.env.staging` and point Docker Compose at it via `SMARTFRIDGE_ENV_FILE` (details below).
 
 Required variables (read at startup):
 
@@ -18,8 +18,8 @@ Required variables (read at startup):
 
 Optional LLM tuning knobs:
 
-- `SMARTFRIDGE_LLM_MODEL` – defaults to `gpt-4o-mini`
-- `SMARTFRIDGE_LLM_SYSTEM_PROMPT` – system message injected ahead of user prompts (also used when requests omit a prompt)
+- `SMARTFRIDGE_LLM_MODEL` – defaults to the value in `smartfridge_backend/config/llm.py`
+- `SMARTFRIDGE_LLM_SYSTEM_PROMPT` – system message injected ahead of user prompts (also used when requests omit a prompt); default lives in `smartfridge_backend/config/llm.py`
 
 Export them with your preferred shell tooling. One option for local work:
 
