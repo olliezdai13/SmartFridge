@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from flask import Blueprint, current_app, jsonify
 import requests
@@ -22,10 +22,38 @@ SPOONACULAR_FIND_BY_INGREDIENTS_URL = (
     "https://api.spoonacular.com/recipes/findByIngredients"
 )
 SPOONACULAR_API_KEY_ENV = "SPOONACULAR_API_KEY"
-_DEFAULT_RECIPE_LIMIT = 5
+_DEFAULT_RECIPE_LIMIT = 10
 _SPOONACULAR_TIMEOUT_SECONDS = 10
 _ParamValue = str | bytes | int | float | bool | Sequence[str | bytes | int | float | bool]
 _RequestParams = Mapping[str, _ParamValue]
+
+
+def _summarize_recipe(recipe: Mapping[str, Any]) -> dict[str, Any]:
+    """Return only the recipe fields we expose to the client."""
+
+    used_ingredients = []
+    for ingredient in recipe.get("usedIngredients") or []:
+        name = ingredient.get("name") or ingredient.get("originalName")
+        if not name:
+            continue
+
+        entry: dict[str, Any] = {
+            "name": name,
+            "amount": ingredient.get("amount"),
+        }
+
+        unit = ingredient.get("unit")
+        if unit:
+            entry["unit"] = unit
+
+        used_ingredients.append(entry)
+
+    return {
+        "title": recipe.get("title"),
+        "missedIngredientCount": recipe.get("missedIngredientCount", 0),
+        "usedIngredientCount": recipe.get("usedIngredientCount", len(used_ingredients)),
+        "usedIngredients": used_ingredients,
+    }
 
 
 def _prepare_spoonacular_query(
@@ -120,11 +148,13 @@ def prepare_recipes_query():
         current_app.logger.exception("invalid Spoonacular API response")
         return jsonify(error="invalid Spoonacular API response"), 502
 
+    current_app.logger.info("Spoonacular recipes payload: %r", recipes)
+
     return jsonify(
         items=items,
         spoonacular_request={
             "endpoint": SPOONACULAR_FIND_BY_INGREDIENTS_URL,
             "query_params": spoonacular_query,
         },
-        recipes=recipes,
+        recipes=[_summarize_recipe(recipe) for recipe in recipes]
     )

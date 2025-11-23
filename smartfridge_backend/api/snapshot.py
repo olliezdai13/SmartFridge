@@ -6,6 +6,7 @@ import mimetypes
 import uuid
 from typing import Any
 
+from httpx import RequestError, TimeoutException
 from flask import Blueprint, current_app, jsonify, request
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -231,6 +232,12 @@ def create_snapshot():
             prompt=prompt,
             mime_type=mime_type,
         )
+    except TimeoutException:
+        current_app.logger.exception("vision LLM request timed out")
+        return jsonify(error="vision model timed out"), 504
+    except RequestError:
+        current_app.logger.exception("vision LLM network error")
+        return jsonify(error="vision model network error"), 502
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     except Exception:  # pragma: no cover - surface upstream errors

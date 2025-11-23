@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from json import JSONDecodeError
 from typing import Any, Optional
 
+from httpx import RequestError, TimeoutException
 from openai import OpenAI
 from openai.types.responses import Response
 
@@ -85,10 +86,20 @@ class VisionLLMClient:
             }
         )
 
-        response: Response = self._client.responses.create(
-            model=self._settings.model,
-            input=content,
-        )
+        try:
+            response: Response = self._client.responses.create(
+                model=self._settings.model,
+                input=content,
+            )
+        except TimeoutException as e:
+            logger.error("OpenAI / HTTP timeout: %r", e)
+            raise
+        except RequestError as e:
+            logger.error("OpenAI / HTTP network error: %r", e)
+            raise
+        except Exception:
+            logger.exception("OpenAI response error")
+            raise
 
         output_text = response.output_text
         return VisionLLMResult(
