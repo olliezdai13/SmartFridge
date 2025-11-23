@@ -1,7 +1,9 @@
 """Defaults for the vision LLM that are tracked in Git."""
 
 # Model version used by default. Can be overridden via env if needed.
-DEFAULT_LLM_MODEL = "gpt-4o-mini"
+DEFAULT_LLM_MODEL = "gpt-5-mini"
+# gpt-4o-mini - decent performance, makes silly mistakes, HUGE input token quantity 
+# gpt-5-mini - ??? performance, ??? mistakes, highly optimal input token quantity 
 
 # Canonical system prompt for vision analysis requests.
 DEFAULT_LLM_SYSTEM_PROMPT = (

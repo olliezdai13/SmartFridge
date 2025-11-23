@@ -9,8 +9,9 @@ from typing import Any
 from flask import Blueprint, current_app, jsonify, request
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
+from smartfridge_backend.api.deps import get_db_session
 from smartfridge_backend.models import (
     FridgeSnapshot,
     Product,
@@ -24,12 +25,12 @@ from smartfridge_backend.services.storage import (
     SnapshotStorageError,
 )
 from smartfridge_backend.services.uploads import StoredImage, save_image_upload
+from smartfridge_backend.services.users import (
+    get_or_create_default_user,
+)
 
 bp = Blueprint("snapshot", __name__, url_prefix="/api")
 
-DEFAULT_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
-DEFAULT_USER_EMAIL = "demo@smartfridge.local"
-DEFAULT_USER_NAME = "Demo User"
 _MAX_RAW_LLM_OUTPUT_BYTES = 16_000
 _TRUNCATION_SUFFIX = " [truncated]"
 
@@ -52,31 +53,10 @@ def _get_snapshot_storage() -> S3SnapshotStorage:
     return storage
 
 
-def _get_sessionmaker() -> sessionmaker:
-    session_factory: sessionmaker | None = current_app.extensions.get(
-        "db_sessionmaker"
-    )
-    if session_factory is None:
-        raise RuntimeError("database session factory is not configured")
-    return session_factory
-
-
-def _get_db_session() -> Session:
-    return _get_sessionmaker()()
-
-
 def _get_or_create_request_user(session: Session) -> User:
     """Return the active user (placeholder until auth lands)."""
 
-    user = session.get(User, DEFAULT_USER_ID)
-    if user is None:
-        user = User(
-            id=DEFAULT_USER_ID,
-            email=DEFAULT_USER_EMAIL,
-            name=DEFAULT_USER_NAME,
-        )
-        session.add(user)
-    return user
+    return get_or_create_default_user(session)
 
 
 def _persist_snapshot_metadata(
@@ -147,7 +127,7 @@ def _persist_snapshot_items(
 ) -> None:
     if not normalized_payload:
         return
-    session = _get_db_session()
+    session = get_db_session()
     try:
         for normalized_name, payload in normalized_payload.items():
             name = (normalized_name or "").strip()
@@ -200,7 +180,7 @@ def _persist_raw_llm_output(
     truncated = _truncate_raw_llm_output(raw_text)
     if truncated is None:
         return
-    session = _get_db_session()
+    session = get_db_session()
     try:
         snapshot = session.get(FridgeSnapshot, snapshot_id)
         if snapshot is None:
@@ -242,7 +222,7 @@ def create_snapshot():
     session: Session | None = None
     snapshot_record: FridgeSnapshot | None = None
     try:
-        session = _get_db_session()
+        session = get_db_session()
         request_user = _get_or_create_request_user(session)
     except RuntimeError as exc:
         return jsonify(error=str(exc)), 503
