@@ -57,9 +57,9 @@ class SnapshotWorkerFailureTests(unittest.TestCase):
         job, snapshot = _build_entities()
         session = _DummySession(job, snapshot)
         worker = SnapshotJobWorker(
-            session_factory=lambda: session,
-            storage=object(),
-            llm_client=object(),
+            session_factory=lambda: session, # type: ignore
+            storage=object(), # type: ignore
+            llm_client=object(), # type: ignore
             settings=WorkerSettings(max_attempts=2, backoff_seconds=10),
         )
 
@@ -79,9 +79,9 @@ class SnapshotWorkerFailureTests(unittest.TestCase):
         job.attempts = 2
         session = _DummySession(job, snapshot)
         worker = SnapshotJobWorker(
-            session_factory=lambda: session,
-            storage=object(),
-            llm_client=object(),
+            session_factory=lambda: session, # type: ignore
+            storage=object(), # type: ignore
+            llm_client=object(), # type: ignore
             settings=WorkerSettings(max_attempts=2, backoff_seconds=5),
         )
 

@@ -148,7 +148,7 @@ def prepare_recipes_query():
         current_app.logger.exception("invalid Spoonacular API response")
         return jsonify(error="invalid Spoonacular API response"), 502
 
-    current_app.logger.info("Spoonacular recipes payload: %r", recipes)
+    # current_app.logger.info("Spoonacular recipes payload: %r", recipes)
 
     return jsonify(
         items=items,

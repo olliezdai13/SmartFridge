@@ -41,10 +41,9 @@ def fetch_latest_items_for_user(
                     FridgeSnapshot.user_id == user_id,
                     FridgeSnapshot.status == "complete",
                 )
-                .order_by(
-                    FridgeSnapshot.updated_at.desc(),
-                    FridgeSnapshot.created_at.desc(),
-                )
+                # Order by creation time so we pick the newest snapshot even if an older
+                # one finished processing later and has a later updated_at timestamp.
+                .order_by(FridgeSnapshot.created_at.desc())
             )
             .scalars()
             .first()

@@ -110,8 +110,6 @@ def _init_database(app: Flask) -> None:
 def _maybe_start_worker(app: Flask) -> None:
     """Start the background snapshot worker when dependencies are available."""
 
-    app.logger.info("HELLO WORLD")
-
     concurrency_env = os.environ.get("WORKER_CONCURRENCY", "1")
     try:
         concurrency = int(concurrency_env)

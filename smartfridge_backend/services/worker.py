@@ -28,7 +28,7 @@ from smartfridge_backend.services.llm import VisionLLMClient
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_ATTEMPTS = 3
+DEFAULT_MAX_ATTEMPTS = 2
 DEFAULT_BACKOFF_SECONDS = 5
 
 
