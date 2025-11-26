@@ -6,12 +6,13 @@ import mimetypes
 from typing import Any
 
 from httpx import RequestError, TimeoutException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from smartfridge_backend.models import (
     FridgeSnapshot,
+    Job,
     Product,
     SnapshotItem,
     User,
@@ -23,6 +24,7 @@ from smartfridge_backend.services.uploads import StoredImage
 MAX_RAW_LLM_OUTPUT_BYTES = 16_000
 TRUNCATION_SUFFIX = " [truncated]"
 DEFAULT_ITEM_QUANTITY = 1
+PROCESS_SNAPSHOT_JOB_TYPE = "process_snapshot"
 
 
 class IngestionError(RuntimeError):
@@ -107,10 +109,55 @@ def _add_snapshot_metadata(
         image_bucket=stored_image.bucket,
         image_key=stored_image.key,
         image_filename=stored_image.filename,
+        status="pending",
     )
     session.add(snapshot)
     session.flush()
     return snapshot
+
+
+def create_snapshot_request(
+    *,
+    session: Session,
+    user: User,
+    stored_image: StoredImage,
+) -> FridgeSnapshot:
+    """Create a snapshot row and queue it for processing."""
+
+    snapshot = _add_snapshot_metadata(
+        session=session,
+        user=user,
+        stored_image=stored_image,
+    )
+    enqueue_snapshot_job(session=session, snapshot=snapshot)
+    return snapshot
+
+
+def enqueue_snapshot_job(
+    *,
+    session: Session,
+    snapshot: FridgeSnapshot,
+) -> Job:
+    """Ensure a process_snapshot job exists for the given snapshot."""
+
+    existing_job = session.execute(
+        select(Job)
+        .where(
+            Job.snapshot_id == snapshot.id,
+            Job.job_type == PROCESS_SNAPSHOT_JOB_TYPE,
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if existing_job:
+        return existing_job
+
+    job = Job(
+        job_type=PROCESS_SNAPSHOT_JOB_TYPE,
+        snapshot_id=snapshot.id,
+        status="queued",
+    )
+    session.add(job)
+    return job
 
 
 def _add_snapshot_items(
@@ -153,18 +200,23 @@ def _attach_raw_llm_output(
     snapshot.raw_llm_output = truncated
 
 
-def ingest_snapshot_image(
+def _clear_snapshot_items(session: Session, snapshot: FridgeSnapshot) -> None:
+    session.execute(
+        delete(SnapshotItem).where(SnapshotItem.snapshot_id == snapshot.id)
+    )
+
+
+def process_snapshot(
     *,
     session: Session,
-    user: User,
-    stored_image: StoredImage,
+    snapshot: FridgeSnapshot,
     image_bytes: bytes,
     llm_client: VisionLLMClient,
     prompt: str | None = None,
-) -> FridgeSnapshot:
+) -> None:
     """Run the image through the vision pipeline and persist results."""
 
-    mime_type, _ = mimetypes.guess_type(stored_image.filename)
+    mime_type, _ = mimetypes.guess_type(snapshot.image_filename)
 
     try:
         llm_result = llm_client.analyze_image(
@@ -192,23 +244,50 @@ def ingest_snapshot_image(
         key: value for key, value in normalized_payload.items() if key
     }
 
+    _attach_raw_llm_output(
+        session=session,
+        snapshot=snapshot,
+        raw_text=raw_text,
+    )
+    _clear_snapshot_items(session, snapshot)
+    _add_snapshot_items(
+        session=session,
+        snapshot=snapshot,
+        normalized_payload=normalized_payload,
+    )
+
+
+def ingest_snapshot_image(
+    *,
+    session: Session,
+    user: User,
+    stored_image: StoredImage,
+    image_bytes: bytes,
+    llm_client: VisionLLMClient,
+    prompt: str | None = None,
+) -> FridgeSnapshot:
+    """Synchronous helper that runs ingestion immediately for a new snapshot."""
+
     try:
         snapshot_record = _add_snapshot_metadata(
             session=session,
             user=user,
             stored_image=stored_image,
         )
-        _attach_raw_llm_output(
+        snapshot_record.status = "processing"
+        process_snapshot(
             session=session,
             snapshot=snapshot_record,
-            raw_text=raw_text,
+            image_bytes=image_bytes,
+            llm_client=llm_client,
+            prompt=prompt,
         )
-        _add_snapshot_items(
-            session=session,
-            snapshot=snapshot_record,
-            normalized_payload=normalized_payload,
-        )
+        snapshot_record.status = "complete"
+        snapshot_record.error = None
         session.commit()
+    except IngestionError:
+        session.rollback()
+        raise
     except SQLAlchemyError as exc:
         session.rollback()
         raise IngestionPersistenceError(

@@ -21,6 +21,10 @@ Optional LLM tuning knobs:
 - `SMARTFRIDGE_LLM_MODEL` – defaults to the value in `smartfridge_backend/config/llm.py`
 - `SMARTFRIDGE_LLM_SYSTEM_PROMPT` – system message injected ahead of user prompts (also used when requests omit a prompt); default lives in `smartfridge_backend/config/llm.py`
 
+Background worker tuning:
+
+- `WORKER_CONCURRENCY` – number of background threads that consume `jobs` (`1` by default, set to `0` to disable the worker)
+
 Optional recipe search integration (required for `/api/recipes`):
 
 - `SPOONACULAR_API_KEY` – Spoonacular Recipes API key used when calling `recipes/findByIngredients`
@@ -84,9 +88,10 @@ Verify the health check once the server is live:
 
 ## Snapshot Workflow
 
-- The server wires up an OpenAI Responses client during startup when an API key is present.
-- `/api/snapshot` accepts `multipart/form-data` with `image` (required) and `prompt` (optional) in a single request.
-- The backend persists the photo into the configured S3 bucket (LocalStack in development), queries the vision model, and responds with the raw text plus best-effort JSON parsing.
+- The server wires up an OpenAI Responses client during startup when an API key is present and spins up a background worker (set `WORKER_CONCURRENCY=0` to disable it).
+- `/api/snapshot` accepts `multipart/form-data` with `image` and responds `202 Accepted` with the `snapshot_id` after persisting the file to S3 and creating a `snapshots` row.
+- A `jobs` row (`job_type=process_snapshot`) is enqueued for each snapshot. The worker polls this queue, downloads the image from S3, runs vision processing, and writes structured items back to the `snapshots` + `items` tables.
+- Snapshot/job statuses reflect progress: `pending -> processing -> complete` (or `failed` after max attempts, default 3).
 - Errors surface as JSON with appropriate HTTP codes (`400` validation, `503` when the client is not configured, etc.).
 
 Smoke-test the workflow end-to-end:
@@ -102,9 +107,9 @@ curl -X POST http://localhost:8000/api/snapshot \
 ### POST `/api/snapshot`
 
 - Uploads a fridge snapshot via `multipart/form-data` using the `image` form field.
-- Optional `prompt` overrides the configured system prompt for the LLM call.
-- Returns the stored filename, S3 bucket/key, LLM output (`raw`, `json`, `result_json`). (`201 Created`).
-- Storage is backed by S3-compatible object storage; in development, LocalStack provides the bucket defined in `SMARTFRIDGE_S3_BUCKET`.
+- Returns `202 Accepted` with the `snapshot_id`, stored filename, and S3 bucket/key once the upload and DB insert succeed.
+- A background worker picks up the job to run the LLM pipeline; poll the `snapshots` row to observe status changes (`pending/processing/complete/failed`).
+- Storage is backed by S3-compatible object storage; in development, LocalStack provides the bucket defined in `SMARTFRIDGE_S3_BUCKET`. The worker downloads the object via the stored bucket/key.
 
 ### GET `/api/recipes`
 

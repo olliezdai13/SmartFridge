@@ -1,3 +1,4 @@
+import logging
 import os
 
 from flask import Flask, jsonify
@@ -14,6 +15,7 @@ from smartfridge_backend.services.llm import (
     VisionLLMSettings,
     init_vision_llm_client,
 )
+from smartfridge_backend.services.worker import SnapshotJobWorker, WorkerSettings
 from smartfridge_backend.services.storage import (
     SnapshotStorageSettings,
     init_snapshot_storage,
@@ -24,6 +26,7 @@ def create_app() -> Flask:
     """Application factory for the SmartFridge backend."""
     app = Flask(__name__)
 
+    _configure_logging(app)
     _init_database(app)
 
     storage_bucket = os.environ.get("SMARTFRIDGE_S3_BUCKET")
@@ -70,8 +73,17 @@ def create_app() -> Flask:
         )
 
     init_api(app)
+    _maybe_start_worker(app)
 
     return app
+
+
+def _configure_logging(app: Flask) -> None:
+    """Ensure application and root loggers emit INFO-level logs."""
+
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger().setLevel(logging.INFO)
+    app.logger.setLevel(logging.INFO)
 
 
 def _init_database(app: Flask) -> None:
@@ -93,6 +105,53 @@ def _init_database(app: Flask) -> None:
     )
     app.extensions["db_engine"] = engine
     app.extensions["db_sessionmaker"] = SessionLocal
+
+
+def _maybe_start_worker(app: Flask) -> None:
+    """Start the background snapshot worker when dependencies are available."""
+
+    app.logger.info("HELLO WORLD")
+
+    concurrency_env = os.environ.get("WORKER_CONCURRENCY", "1")
+    try:
+        concurrency = int(concurrency_env)
+    except ValueError:
+        app.logger.warning(
+            "snapshot worker disabled: invalid WORKER_CONCURRENCY=%s",
+            concurrency_env,
+        )
+        return
+
+    if concurrency <= 0:
+        app.logger.info("snapshot worker disabled (concurrency=%s)", concurrency)
+        return
+
+    sessionmaker = app.extensions.get("db_sessionmaker")
+    storage = app.extensions.get("snapshot_storage")
+    llm_client = app.extensions.get("vision_llm_client")
+
+    if not sessionmaker or not storage or not llm_client:
+        app.logger.info(
+            "snapshot worker not started; missing dependencies",
+            extra={
+                "sessionmaker": bool(sessionmaker),
+                "storage": bool(storage),
+                "llm_client": bool(llm_client),
+            },
+        )
+        return
+
+    worker = SnapshotJobWorker(
+        session_factory=sessionmaker,
+        storage=storage,
+        llm_client=llm_client,
+        settings=WorkerSettings(),
+    )
+    app.logger.info(
+        "starting snapshot worker", extra={"concurrency": concurrency}
+    )
+    worker.start(concurrency=concurrency)
+    app.extensions["snapshot_worker"] = worker
 
 
 app = create_app()

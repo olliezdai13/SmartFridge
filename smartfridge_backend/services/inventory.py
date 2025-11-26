@@ -37,8 +37,14 @@ def fetch_latest_items_for_user(
                         SnapshotItem.product
                     )
                 )
-                .where(FridgeSnapshot.user_id == user_id)
-                .order_by(FridgeSnapshot.created_at.desc())
+                .where(
+                    FridgeSnapshot.user_id == user_id,
+                    FridgeSnapshot.status == "complete",
+                )
+                .order_by(
+                    FridgeSnapshot.updated_at.desc(),
+                    FridgeSnapshot.created_at.desc(),
+                )
             )
             .scalars()
             .first()

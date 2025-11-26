@@ -6,9 +6,18 @@ import os
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -62,6 +71,12 @@ class FridgeSnapshot(TimestampMixin, Base):
     """A single inference result captured for a user."""
 
     __tablename__ = "snapshots"
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('pending','processing','complete','failed')",
+            name="ck_snapshots_status",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -71,6 +86,16 @@ class FridgeSnapshot(TimestampMixin, Base):
     image_key: Mapped[str] = mapped_column(String(512), nullable=False)
     image_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     raw_llm_output: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[Literal["pending", "processing", "complete", "failed"]] = (
+        mapped_column(String(32), nullable=False, default="pending")
+    )
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
     user: Mapped[User] = relationship(back_populates="snapshots")
     items: Mapped[list["SnapshotItem"]] = relationship(
@@ -102,6 +127,50 @@ class SnapshotItem(Base):
 
     snapshot: Mapped[FridgeSnapshot] = relationship(back_populates="items")
     product: Mapped[Product] = relationship(back_populates="snapshot_items")
+
+
+class Job(Base):
+    """Lightweight job row for async snapshot processing."""
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        UniqueConstraint(
+            "job_type",
+            "snapshot_id",
+            name="uq_jobs_snapshot_job_type",
+        ),
+        CheckConstraint(
+            "status in ('queued','running','done','failed')",
+            name="ck_jobs_status",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    job_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("snapshots.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[Literal["queued", "running", "done", "failed"]] = (
+        mapped_column(String(32), nullable=False, default="queued")
+    )
+    attempts: Mapped[int] = mapped_column(nullable=False, default=0)
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+    run_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    locked_by: Mapped[Optional[str]] = mapped_column(String(64))
+    locked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    snapshot: Mapped[FridgeSnapshot] = relationship()
 
 
 def get_database_url() -> str:

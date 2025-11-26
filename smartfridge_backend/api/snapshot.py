@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request
+from sqlalchemy.exc import SQLAlchemyError
 
+from smartfridge_backend.api.deps import get_db_session
+from smartfridge_backend.services.ingestion import create_snapshot_request
 from smartfridge_backend.services.storage import (
     S3SnapshotStorage,
     SnapshotStorageError,
 )
 from smartfridge_backend.services.uploads import save_image_upload
-from smartfridge_backend.services.users import DEFAULT_USER_ID
+from smartfridge_backend.services.users import (
+    DEFAULT_USER_ID,
+    get_or_create_default_user,
+)
 
 bp = Blueprint("snapshot", __name__, url_prefix="/api")
 
@@ -38,22 +44,44 @@ def create_snapshot():
         return jsonify(error=str(exc)), 503
 
     try:
+        session = get_db_session()
+    except RuntimeError as exc:
+        return jsonify(error=str(exc)), 503
+
+    try:
         stored_image, _ = save_image_upload(
             image_file,
             storage,
             user_id=str(DEFAULT_USER_ID),
         )
+        user = get_or_create_default_user(session)
+        snapshot = create_snapshot_request(
+            session=session,
+            user=user,
+            stored_image=stored_image,
+        )
+        session.commit()
     except ValueError as exc:
+        session.rollback()
         return jsonify(error=str(exc)), 400
     except SnapshotStorageError as exc:
+        session.rollback()
         current_app.logger.exception("snapshot storage failure")
         return jsonify(error=str(exc)), 502
+    except SQLAlchemyError:
+        session.rollback()
+        current_app.logger.exception("failed to enqueue snapshot")
+        return jsonify(error="database failure while creating snapshot"), 500
+    finally:
+        session.close()
 
     return (
         jsonify(
+            snapshot_id=str(snapshot.id),
+            status=snapshot.status,
             bucket=stored_image.bucket,
             key=stored_image.key,
             filename=stored_image.filename,
         ),
-        201,
+        202,
     )

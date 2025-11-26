@@ -70,6 +70,27 @@ class S3SnapshotStorage:
 
         return key
 
+    def fetch_image_bytes(
+        self,
+        *,
+        bucket: str | None,
+        key: str,
+    ) -> bytes:
+        """Download an object's bytes from the configured bucket."""
+
+        try:
+            response = self._client.get_object(
+                Bucket=bucket or self._settings.bucket,
+                Key=key,
+            )
+            body = response["Body"].read()
+        except (BotoCoreError, ClientError) as exc:  # pragma: no cover - external
+            raise SnapshotStorageError("failed to download image from S3") from exc
+
+        if not body:
+            raise SnapshotStorageError("downloaded object was empty")
+        return body
+
 
 def init_snapshot_storage(settings: SnapshotStorageSettings) -> S3SnapshotStorage:
     """Factory to mirror the init_* pattern used across services."""
