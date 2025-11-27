@@ -9,8 +9,9 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from psycopg.errors import UndefinedTable
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from smartfridge_backend.models import FridgeSnapshot, Job
@@ -37,7 +38,7 @@ class WorkerSettings:
     """Configuration knobs for the snapshot worker."""
 
     max_attempts: int = DEFAULT_MAX_ATTEMPTS
-    poll_interval: float = 1.0
+    poll_interval: float = 3.0
     backoff_seconds: int = DEFAULT_BACKOFF_SECONDS
 
 
@@ -87,6 +88,7 @@ class SnapshotJobWorker:
 
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
+            # logger.info("thread polling for next job...")
             processed = self._process_next_job()
             if not processed:
                 logger.debug(
@@ -98,7 +100,19 @@ class SnapshotJobWorker:
     def _process_next_job(self) -> bool:
         session = self._session_factory()
         try:
-            job = self._lock_next_job(session)
+            try:
+                job = self._lock_next_job(session)
+            except ProgrammingError as exc:
+                # Happens if migrations have not created the jobs table yet.
+                if isinstance(exc.orig, UndefinedTable):
+                    logger.warning(
+                        "jobs table not found; waiting for migrations to run",
+                    )
+                    session.rollback()
+                    time.sleep(self._settings.backoff_seconds)
+                    return False
+                raise
+
             if job is None:
                 session.rollback()
                 return False

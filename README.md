@@ -1,60 +1,48 @@
 # SmartFridge Backend
 
-Backend services for the SmartFridge project. The app accepts camera snapshots from the Raspberry Pi fridge, stores them, and lets us poke a vision-capable LLM until the full ingestion pipeline is ready.
+Backend for accepting fridge camera snapshots, storing them, and running a vision-capable LLM pipeline.
 
-## Quick Start
+## Prerequisites
 
-### 1. Configure environment secrets
+- Docker + Docker Compose (recommended flow)
+- Python 3.11+ if running without Docker
+- `make` is optional; most commands below use plain shell
 
-Secrets and deployment-specific values live in `.env.local`. Update that file before starting services. If you need multiple variants (e.g., staging), create another file such as `.env.staging` and point Docker Compose at it via `SMARTFRIDGE_ENV_FILE` (details below).
+## Configure Environment
 
-Required variables (read at startup):
+Create `.env.local` (or `.env.<stage>`) with the variables the app reads at startup:
 
-- `SMARTFRIDGE_LLM_API_KEY` – OpenAI key used by the vision client (`OPENAI_API_KEY` works as a fallback)
-- `DATABASE_URL` – SQLAlchemy-style Postgres URL (use the psycopg dialect, e.g. `postgresql+psycopg://smartfridge:smartfridge@postgres:5432/smartfridge`)
-- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` – credentials injected into the bundled Postgres container (only needed if you override the defaults)
-- `SMARTFRIDGE_S3_BUCKET`, `SMARTFRIDGE_S3_REGION`, `SMARTFRIDGE_S3_ENDPOINT_URL`, `SMARTFRIDGE_S3_BASE_PREFIX` – configure where snapshots are stored (point at LocalStack for development or an actual S3 endpoint in production)
-- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` – credentials the storage client uses (LocalStack accepts any values; production requires real IAM secrets or roles)
+- `SMARTFRIDGE_LLM_API_KEY` (or `OPENAI_API_KEY`) for the vision client
+- `DATABASE_URL` (e.g. `postgresql+psycopg://smartfridge:smartfridge@postgres:5432/smartfridge`)
+- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` for the bundled Postgres container
+- `SMARTFRIDGE_S3_BUCKET`, `SMARTFRIDGE_S3_REGION`, `SMARTFRIDGE_S3_ENDPOINT_URL`, `SMARTFRIDGE_S3_BASE_PREFIX` for object storage (LocalStack in dev, S3 in prod)
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` for the storage client
+- `SPOONACULAR_API_KEY` to enable `/api/recipes`
+- `WORKER_CONCURRENCY` number of threads the background job consumer will use per process
 
-Optional LLM tuning knobs:
-
-- `SMARTFRIDGE_LLM_MODEL` – defaults to the value in `smartfridge_backend/config/llm.py`
-- `SMARTFRIDGE_LLM_SYSTEM_PROMPT` – system message injected ahead of user prompts (also used when requests omit a prompt); default lives in `smartfridge_backend/config/llm.py`
-
-Background worker tuning:
-
-- `WORKER_CONCURRENCY` – number of background threads that consume `jobs` (`1` by default, set to `0` to disable the worker)
-
-Optional recipe search integration (required for `/api/recipes`):
-
-- `SPOONACULAR_API_KEY` – Spoonacular Recipes API key used when calling `recipes/findByIngredients`
-
-Export them with your preferred shell tooling. One option for local work:
+Switch env files with `SMARTFRIDGE_ENV_FILE=.env.staging docker compose up ...` when you need a different config. To export variables locally:
 
 ```bash
-set -a
-source .env.local
-set +a
+set -a && source .env.local && set +a
 ```
 
-### 2. Run the server
-
-**Docker (recommended)**
+## Run with Docker (recommended)
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
-This brings up Postgres, LocalStack (for the S3-compatible bucket), and the Flask API in one shot. To target a different env file (e.g., staging vs. production) set `SMARTFRIDGE_ENV_FILE` when invoking Compose:
+This starts the Flask API, Postgres, and LocalStack. Health check once it is up:
 
 ```bash
-SMARTFRIDGE_ENV_FILE=.env.local docker compose up --build
-SMARTFRIDGE_ENV_FILE=.env.staging docker compose up --build
+./scripts/healthcheck.sh
 ```
 
-By default the service loads variables from `.env.local` so the container has sane defaults even without overrides.
+Reload after changing code or dependencies: `docker compose up --build -d` (or `docker compose restart smartfridge-backend` for config-only changes). Inspect logs with `docker compose logs -f smartfridge-backend`.
 
-**Local virtualenv**
+## Run without Docker
+
+Ensure Postgres and LocalStack are running (you can reuse the Compose services: `docker compose up postgres localstack`). Then:
 
 ```bash
 python3 -m venv .venv
@@ -63,38 +51,31 @@ pip install -r requirements.txt
 flask --app smartfridge_backend run --host 0.0.0.0 --port 8000
 ```
 
-`make install` bootstraps the virtualenv and dependencies if you prefer Make targets.
+`make install` sets up the venv and dependencies if you prefer Make.
 
-### 3. Apply database migrations
+## Database Migrations
 
-Alembic migrations live under `migrations/`. Run them whenever the schema changes:
+Apply migrations:
 
 ```bash
-# example: running locally against the Compose Postgres instance
-DATABASE_URL=postgresql+psycopg://smartfridge:smartfridge@localhost:5432/smartfridge \
-  alembic upgrade head
-
-# or, inside the container where DATABASE_URL already points at postgres
 docker compose exec smartfridge-backend alembic upgrade head
 ```
 
-`alembic revision --autogenerate -m "..."` inspects the models in `smartfridge_backend/models/` and creates new migration files.
-
-Verify the health check once the server is live:
+Generate a migration from model changes:
 
 ```bash
-./scripts/healthcheck.sh
+docker compose exec smartfridge-backend alembic revision --autogenerate -m "describe change"
 ```
+
+Running outside Docker? Set `DATABASE_URL` and run the same Alembic commands locally.
 
 ## Snapshot Workflow
 
-- The server wires up an OpenAI Responses client during startup when an API key is present and spins up a background worker (set `WORKER_CONCURRENCY=0` to disable it).
-- `/api/snapshot` accepts `multipart/form-data` with `image` and responds `202 Accepted` with the `snapshot_id` after persisting the file to S3 and creating a `snapshots` row.
-- A `jobs` row (`job_type=process_snapshot`) is enqueued for each snapshot. The worker polls this queue, downloads the image from S3, runs vision processing, and writes structured items back to the `snapshots` + `items` tables.
-- Snapshot/job statuses reflect progress: `pending -> processing -> complete` (or `failed` after max attempts, default 3).
-- Errors surface as JSON with appropriate HTTP codes (`400` validation, `503` when the client is not configured, etc.).
+- `/api/snapshot` saves the uploaded image to S3/LocalStack, records a `snapshots` row, and enqueues a `process_snapshot` job.
+- A worker downloads the image, runs vision parsing (LLM for now), and writes structured items back to `snapshots` + `items`.
+- Status transitions: `pending -> processing -> complete` (or `failed` after retries).
 
-Smoke-test the workflow end-to-end:
+Smoke test:
 
 ```bash
 curl -X POST http://localhost:8000/api/snapshot \
@@ -102,59 +83,15 @@ curl -X POST http://localhost:8000/api/snapshot \
   -F "prompt=List items and expiration dates"
 ```
 
-## API Reference
+## API Quick Reference
 
-### POST `/api/snapshot`
+- `POST /api/snapshot` — multipart upload with `image` (and optional `prompt`); returns `202` with `snapshot_id`, bucket/key, and initial status. Poll the `snapshots` row to track progress.
+- `GET /api/recipes` — requires `SPOONACULAR_API_KEY`; returns latest fridge inventory plus the Spoonacular request/response. Example: `curl http://localhost:8000/api/recipes`.
 
-- Uploads a fridge snapshot via `multipart/form-data` using the `image` form field.
-- Returns `202 Accepted` with the `snapshot_id`, stored filename, and S3 bucket/key once the upload and DB insert succeed.
-- A background worker picks up the job to run the LLM pipeline; poll the `snapshots` row to observe status changes (`pending/processing/complete/failed`).
-- Storage is backed by S3-compatible object storage; in development, LocalStack provides the bucket defined in `SMARTFRIDGE_S3_BUCKET`. The worker downloads the object via the stored bucket/key.
+## Local Object Storage
 
-### GET `/api/recipes`
+LocalStack runs with Compose and seeds the `smartfridge-snapshots` bucket via `scripts/localstack-init-s3.sh`. When running the app outside Docker, point the client at `http://localhost:4566` via `SMARTFRIDGE_S3_ENDPOINT_URL`. Inspect stored objects:
 
-- Requires `SPOONACULAR_API_KEY` to be set.
-- Returns the latest fridge inventory for the placeholder user, the Spoonacular query params the backend used, and the recipes fetched from Spoonacular.
-- Response includes `items` (name + quantity), `spoonacular_request` with `endpoint` and `query_params` (`ingredients`, `number`, `ranking`, `ignorePantry`), and `recipes` (the parsed Spoonacular response).
-- Example:
-
-  ```bash
-  curl http://localhost:8000/api/recipes
-  ```
-
-## Spoonacular Recipes API
-
-- The backend shapes the latest fridge snapshot into query params and calls Spoonacular's `recipes/findByIngredients` endpoint directly.
-- Set `SPOONACULAR_API_KEY` in `.env.local` (or your chosen env file) so the backend can authenticate its Spoonacular requests.
-- Official docs: https://spoonacular.com/food-api/docs.
-
-## Local Object Storage (LocalStack)
-
-- `docker compose up` now starts a `localstack` container alongside the backend and Postgres.
-- The helper script in `scripts/localstack-init-s3.sh` automatically creates the `smartfridge-snapshots` bucket via `awslocal`.
-- Default credentials/endpoint live in `.env.local` (the endpoint is `http://localstack:4566` so containers talk to the LocalStack service over Docker's network). When running the Flask app outside of Docker, export `SMARTFRIDGE_S3_ENDPOINT_URL=http://localhost:4566` so the client reaches LocalStack from the host machine.
-- Objects are written under `snapshots/user-<id>/...`; for now the snapshot API stores uploads for `user-1` until multi-user plumbing is in place.
-- Inspect stored snapshots via the LocalStack CLI:
-
-  ```bash
-  docker compose exec localstack awslocal s3 ls s3://smartfridge-snapshots --recursive
-  ```
-
-- View objects directly via the LocalStack HTTP endpoint from your browser or with `curl` using the path `http://localhost:4566/smartfridge-snapshots/snapshots/user-<userid>/<filename>`. Example: `http://localhost:4566/smartfridge-snapshots/snapshots/user-00000000-0000-0000-0000-000000000001/20251121T212914Z.jpeg`.
-
-- Objects persist until you destroy the LocalStack container. Use `docker compose down -v` to wipe all mock S3 data (or remove individual keys with `awslocal s3 rm`).
-
-## Project Structure
-
-- `smartfridge_backend/` – Flask application package and app factory.
-- `smartfridge_backend/api/` – Blueprint that owns the `/api/snapshot` endpoint.
-- `smartfridge_backend/models/` – SQLAlchemy models and metadata used by Alembic.
-- `smartfridge_backend/services/` – Upload helpers, the OpenAI client wrapper, and the S3 storage client.
-- `Dockerfile`, `docker-compose.yml` – Deployment and local development scaffolding.
-- `scripts/` – Handy utilities like the health check.
-
-## Maintenance
-
-- Keep Docker and dependency definitions aligned with code changes.
-- Update this README whenever endpoint behavior or environment requirements shift.
-- Store environment secrets outside of version control and create separate `.env.<stage>` files for each deployment target.
+```bash
+docker compose exec localstack awslocal s3 ls s3://smartfridge-snapshots --recursive
+```
