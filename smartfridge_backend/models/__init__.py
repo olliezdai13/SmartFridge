@@ -179,4 +179,16 @@ def get_database_url() -> str:
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL environment variable is not set")
+
+    # Normalize common Postgres URL forms to the installed psycopg v3 driver.
+    if database_url.startswith("postgres://"):
+        return "postgresql+psycopg://" + database_url[len("postgres://") :]
+    if database_url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + database_url[len("postgresql://") :]
+    if database_url.startswith("postgresql+psycopg2://"):
+        return (
+            "postgresql+psycopg://"
+            + database_url[len("postgresql+psycopg2://") :]
+        )
+
     return database_url
