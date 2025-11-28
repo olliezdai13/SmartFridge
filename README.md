@@ -38,6 +38,8 @@ This starts the Flask API, Postgres, and LocalStack. Health check once it is up:
 ./scripts/healthcheck.sh
 ```
 
+The backend entrypoint automatically runs `alembic upgrade head` (with retries) on startup so the database schema stays current.
+
 Reload after changing code or dependencies: `docker compose up --build -d` (or `docker compose restart smartfridge-backend` for config-only changes). Inspect logs with `docker compose logs -f smartfridge-backend`.
 
 ## Run without Docker
@@ -60,6 +62,8 @@ Apply migrations:
 ```bash
 docker compose exec smartfridge-backend alembic upgrade head
 ```
+
+The container runs this automatically on startup; use the command above if you need to re-run manually.
 
 Generate a migration from model changes:
 
