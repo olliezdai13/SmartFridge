@@ -17,6 +17,7 @@ Create `.env.local` (or `.env.<stage>`) with the variables the app reads at star
 - `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` for the bundled Postgres container
 - `SMARTFRIDGE_S3_BUCKET`, `SMARTFRIDGE_S3_REGION`, `SMARTFRIDGE_S3_ENDPOINT_URL`, `SMARTFRIDGE_S3_BASE_PREFIX` for object storage (LocalStack in dev, S3 in prod)
 - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` for the storage client
+- `SMARTFRIDGE_API_SHARED_SECRET` token required on all API calls
 - `SPOONACULAR_API_KEY` to enable `/api/recipes`
 - `WORKER_CONCURRENCY` number of threads the background job consumer will use per process
 
@@ -89,8 +90,19 @@ curl -X POST http://localhost:8000/api/snapshot \
 
 ## API Quick Reference
 
-- `POST /api/snapshot` — multipart upload with `image` (and optional `prompt`); returns `202` with `snapshot_id`, bucket/key, and initial status. Poll the `snapshots` row to track progress.
-- `GET /api/recipes` — requires `SPOONACULAR_API_KEY`; returns latest fridge inventory plus the Spoonacular request/response. Example: `curl http://localhost:8000/api/recipes`.
+- Authentication: include the shared secret on every call, either `Authorization: Bearer <token>` or `X-API-Token: <token>`.
+- `POST /api/snapshot` — multipart upload with `image` (and optional `prompt`); returns `202` with `snapshot_id`, bucket/key, and initial status. Poll the `snapshots` row to track progress. Example:
+  ```bash
+  curl -H "Authorization: Bearer $SMARTFRIDGE_API_SHARED_SECRET" \
+    -X POST http://localhost:8000/api/snapshot \
+    -F "image=@/path/to/fridge.jpg" \
+    -F "prompt=List items and expiration dates"
+  ```
+- `GET /api/recipes` — requires `SPOONACULAR_API_KEY`; returns latest fridge inventory plus the Spoonacular request/response. Example:
+  ```bash
+  curl -H "Authorization: Bearer $SMARTFRIDGE_API_SHARED_SECRET" \
+    http://localhost:8000/api/recipes
+  ```
 
 ## Local Object Storage
 
