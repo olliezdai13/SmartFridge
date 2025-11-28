@@ -50,6 +50,7 @@ def _summarize_recipe(recipe: Mapping[str, Any]) -> dict[str, Any]:
 
     return {
         "title": recipe.get("title"),
+        "image": recipe.get("image"),
         "missedIngredientCount": recipe.get("missedIngredientCount", 0),
         "usedIngredientCount": recipe.get("usedIngredientCount", len(used_ingredients)),
         "usedIngredients": used_ingredients,
