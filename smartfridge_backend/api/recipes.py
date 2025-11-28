@@ -81,7 +81,7 @@ def _prepare_spoonacular_query(
     return {
         "ingredients": ",".join(unique_ingredients),
         "number": _DEFAULT_RECIPE_LIMIT,
-        "ranking": 1,
+        "ranking": 2,
         "ignorePantry": True,
     }
 
