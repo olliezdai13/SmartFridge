@@ -26,6 +26,10 @@ def create_app() -> Flask:
     """Application factory for the SmartFridge backend."""
     app = Flask(__name__)
 
+    app.config["API_SHARED_SECRET"] = os.environ.get(
+        "SMARTFRIDGE_API_SHARED_SECRET"
+    )
+
     _configure_logging(app)
     _init_database(app)
 
