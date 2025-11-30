@@ -1,27 +1,34 @@
-"""User helpers and placeholder defaults until authentication lands."""
+"""User helpers for authentication flows."""
 
 from __future__ import annotations
 
-import uuid
-
-from sqlalchemy.orm import Session
+from datetime import datetime
+from typing import Any
 
 from smartfridge_backend.models import User
 
-DEFAULT_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
-DEFAULT_USER_EMAIL = "demo@smartfridge.local"
-DEFAULT_USER_NAME = "Demo User"
+
+def normalize_email(email: str) -> str:
+    """Normalize an email for lookups and storage."""
+
+    return email.strip().lower()
 
 
-def get_or_create_default_user(session: Session) -> User:
-    """Return the placeholder user record, creating it if missing."""
+def serialize_user(user: User) -> dict[str, Any]:
+    """Return a JSON-friendly representation of the user."""
 
-    user = session.get(User, DEFAULT_USER_ID)
-    if user is None:
-        user = User(
-            id=DEFAULT_USER_ID,
-            email=DEFAULT_USER_EMAIL,
-            name=DEFAULT_USER_NAME,
-        )
-        session.add(user)
-    return user
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "name": user.name,
+        "createdAt": user.created_at.isoformat() if user.created_at else None,
+        "lastLoginAt": _serialize_datetime(user.last_login_at),
+    }
+
+
+def _serialize_datetime(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.isoformat() + "Z"
+    return value.isoformat()

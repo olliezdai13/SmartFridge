@@ -1,7 +1,8 @@
 import logging
 import os
+from pathlib import Path
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -24,10 +25,19 @@ from smartfridge_backend.services.storage import (
 
 def create_app() -> Flask:
     """Application factory for the SmartFridge backend."""
-    app = Flask(__name__)
+    dist_path = Path(__file__).resolve().parent.parent / "smartfridge_frontend" / "dist"
+    app = Flask(
+        __name__,
+        static_folder=str(dist_path),
+        static_url_path="",
+    )
 
-    app.config["API_SHARED_SECRET"] = os.environ.get(
-        "SMARTFRIDGE_API_SHARED_SECRET"
+    app.config["SECRET_KEY"] = (
+        os.environ.get("SMARTFRIDGE_AUTH_SECRET")
+        or os.environ.get("SMARTFRIDGE_SECRET_KEY")
+        or os.environ.get("FLASK_SECRET_KEY")
+        or app.config.get("SECRET_KEY")
+        or os.urandom(32)
     )
 
     _configure_logging(app)
@@ -54,6 +64,19 @@ def create_app() -> Flask:
     @app.get("/healthz")
     def healthcheck():
         return jsonify(status="ok")
+
+    @app.route("/", defaults={"path": "index.html"})
+    @app.route("/<path:path>")
+    def serve_frontend(path: str):
+        """
+        Serve the built frontend (SPA) from the Vite dist folder.
+        Falls back to index.html for client-side routes.
+        """
+        if path.startswith("api/"):
+            return jsonify({"error": "Not found"}), 404
+
+        target = path if (dist_path / path).exists() else "index.html"
+        return send_from_directory(dist_path, target)
 
     llm_api_key = os.environ.get("SMARTFRIDGE_LLM_API_KEY") or os.environ.get(
         "OPENAI_API_KEY"

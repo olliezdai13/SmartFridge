@@ -9,12 +9,14 @@ from flask import Blueprint, current_app, jsonify
 import requests
 from sqlalchemy.exc import SQLAlchemyError
 
-from smartfridge_backend.api.deps import get_sessionmaker
+from smartfridge_backend.api.deps import (
+    get_current_user_id,
+    get_sessionmaker,
+)
 from smartfridge_backend.services.inventory import (
     InventoryItem,
     fetch_latest_items_for_user,
 )
-from smartfridge_backend.services.users import DEFAULT_USER_ID
 
 bp = Blueprint("recipes", __name__, url_prefix="/api")
 
@@ -104,7 +106,7 @@ def prepare_recipes_query():
 
     try:
         items = fetch_latest_items_for_user(
-            session_factory, user_id=DEFAULT_USER_ID
+            session_factory, user_id=get_current_user_id()
         )
     except SQLAlchemyError:
         current_app.logger.exception("failed to load fridge inventory")

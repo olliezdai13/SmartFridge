@@ -5,17 +5,17 @@ from __future__ import annotations
 from flask import Blueprint, current_app, jsonify, request
 from sqlalchemy.exc import SQLAlchemyError
 
-from smartfridge_backend.api.deps import get_db_session
+from smartfridge_backend.api.deps import (
+    get_current_user_id,
+    get_db_session,
+)
+from smartfridge_backend.models import User
 from smartfridge_backend.services.ingestion import create_snapshot_request
 from smartfridge_backend.services.storage import (
     S3SnapshotStorage,
     SnapshotStorageError,
 )
 from smartfridge_backend.services.uploads import save_image_upload
-from smartfridge_backend.services.users import (
-    DEFAULT_USER_ID,
-    get_or_create_default_user,
-)
 
 bp = Blueprint("snapshot", __name__, url_prefix="/api")
 
@@ -49,12 +49,16 @@ def create_snapshot():
         return jsonify(error=str(exc)), 503
 
     try:
+        user_id = get_current_user_id()
+        user = session.get(User, user_id)
+        if user is None:
+            return jsonify(error="user not found"), 401
+
         stored_image, _ = save_image_upload(
             image_file,
             storage,
-            user_id=str(DEFAULT_USER_ID),
+            user_id=str(user.id),
         )
-        user = get_or_create_default_user(session)
         snapshot = create_snapshot_request(
             session=session,
             user=user,
