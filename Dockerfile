@@ -1,3 +1,11 @@
+# Build frontend bundle so Flask can serve the Vite SPA from /smartfridge_frontend/dist
+FROM node:20-slim AS frontend-build
+WORKDIR /app
+COPY smartfridge_frontend ./smartfridge_frontend
+RUN cd smartfridge_frontend \
+    && npm install \
+    && npm run build
+
 FROM python:3.12-slim AS base
 
 ENV PYTHONUNBUFFERED=1 \
@@ -15,6 +23,7 @@ RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
 COPY . .
+COPY --from=frontend-build /app/smartfridge_frontend/dist ./smartfridge_frontend/dist
 RUN chmod +x scripts/entrypoint.sh
 
 EXPOSE 8000
