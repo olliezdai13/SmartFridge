@@ -1,10 +1,11 @@
 # Build frontend bundle so Flask can serve the Vite SPA from /smartfridge_frontend/dist
 FROM node:20-slim AS frontend-build
-WORKDIR /app
-COPY smartfridge_frontend ./smartfridge_frontend
-RUN cd smartfridge_frontend \
-    && npm install \
-    && npm run build
+WORKDIR /app/smartfridge_frontend
+# Install deps separately to leverage Docker layer cache and avoid copying host node_modules
+COPY smartfridge_frontend/package*.json ./
+RUN npm ci
+COPY smartfridge_frontend .
+RUN npm run build
 
 FROM python:3.12-slim AS base
 
