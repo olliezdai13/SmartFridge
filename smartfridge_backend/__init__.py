@@ -6,25 +6,26 @@ from flask import Flask, jsonify, send_from_directory
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from smartfridge_backend.api import init_app as init_api
-from smartfridge_backend.config import (
-    DEFAULT_LLM_MODEL,
-    DEFAULT_LLM_SYSTEM_PROMPT,
-)
-from smartfridge_backend.models import get_database_url
-from smartfridge_backend.services.llm import (
-    VisionLLMSettings,
-    init_vision_llm_client,
-)
-from smartfridge_backend.services.worker import SnapshotJobWorker, WorkerSettings
-from smartfridge_backend.services.storage import (
-    SnapshotStorageSettings,
-    init_snapshot_storage,
-)
-
 
 def create_app() -> Flask:
     """Application factory for the SmartFridge backend."""
+
+    # Import application modules lazily so that importing the package
+    # (e.g., for Alembic migrations) doesn't pull in optional runtime deps.
+    from smartfridge_backend.api import init_app as init_api
+    from smartfridge_backend.config import (
+        DEFAULT_LLM_MODEL,
+        DEFAULT_LLM_SYSTEM_PROMPT,
+    )
+    from smartfridge_backend.models import get_database_url
+    from smartfridge_backend.services.llm import (
+        VisionLLMSettings,
+        init_vision_llm_client,
+    )
+    from smartfridge_backend.services.storage import (
+        SnapshotStorageSettings,
+        init_snapshot_storage,
+    )
     dist_path = Path(__file__).resolve().parent.parent / "smartfridge_frontend" / "dist"
     app = Flask(
         __name__,
@@ -116,6 +117,9 @@ def _configure_logging(app: Flask) -> None:
 def _init_database(app: Flask) -> None:
     """Configure the SQLAlchemy session factory for request handlers."""
 
+    # Import lazily to avoid pulling app dependencies into migration runs.
+    from smartfridge_backend.models import get_database_url
+
     try:
         database_url = get_database_url()
     except RuntimeError:
@@ -136,6 +140,12 @@ def _init_database(app: Flask) -> None:
 
 def _maybe_start_worker(app: Flask) -> None:
     """Start the background snapshot worker when dependencies are available."""
+
+    from smartfridge_backend.services.worker import (
+        SnapshotJobWorker,
+        WorkerSettings,
+    )
+    from smartfridge_backend.services.storage import SnapshotStorageSettings
 
     concurrency_env = os.environ.get("WORKER_CONCURRENCY", "1")
     try:
@@ -179,8 +189,6 @@ def _maybe_start_worker(app: Flask) -> None:
     app.extensions["snapshot_worker"] = worker
 
 
-app = create_app()
-
-
 if __name__ == "__main__":
+    app = create_app()
     app.run(host="0.0.0.0", port=8000)
