@@ -1,7 +1,7 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 
 import Layout from '../components/Layout'
-import { useAuth } from '../lib/auth'
+import { useAuth } from '../lib/auth.tsx'
 
 function ProtectedLayout() {
   const { user, loading } = useAuth()

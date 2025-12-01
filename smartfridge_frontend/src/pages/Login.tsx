@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-import { useAuth } from '../lib/auth'
+import { useAuth } from '../lib/auth.tsx'
 
 type AuthMode = 'login' | 'signup'
 

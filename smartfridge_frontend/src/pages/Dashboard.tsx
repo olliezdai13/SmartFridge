@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { isAxiosError } from 'axios'
+import { isAxiosError, type AxiosResponse } from 'axios'
 
-import { apiClient } from '../lib/apiClient'
+import { apiClient } from '../lib/apiClient.ts'
 
 type LatestPayload = {
   latest: {
@@ -30,16 +30,16 @@ function Dashboard() {
         setToast('Backend is healthy')
         timer = window.setTimeout(() => setToast(null), 4000)
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         console.error('Health check failed', err)
       })
 
     apiClient
       .get<LatestPayload>('/latest')
-      .then((response) => {
+      .then((response: AxiosResponse<LatestPayload>) => {
         setLatest(response.data)
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         const message = isAxiosError(error)
           ? (error.response?.data as { error?: string } | undefined)?.error
           : null
