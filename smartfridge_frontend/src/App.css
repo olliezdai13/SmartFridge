@@ -196,6 +196,50 @@
   color: #5c6475;
 }
 
+/* Toasts */
+.toast-stack {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  display: grid;
+  gap: 8px;
+  z-index: 100;
+}
+
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #d7deea;
+  box-shadow: 0 14px 30px -20px rgba(13, 24, 59, 0.35);
+  background: #ffffff;
+  color: #0b1220;
+  min-width: 220px;
+  max-width: 320px;
+}
+
+.toast.success {
+  border-color: #b8e0d8;
+  background: #eef7f4;
+  color: #0d6b5a;
+}
+
+.toast.error {
+  border-color: #f1c1c1;
+  background: #fff3f3;
+  color: #7d1b1b;
+}
+
+.toast-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.75;
+}
+
 @media (max-width: 720px) {
   .app-shell {
     padding: 22px 14px 36px;
