@@ -1,11 +1,20 @@
 import SnapshotCarousel from '../components/SnapshotCarousel'
 import type { Snapshot } from '../components/SnapshotCard'
 
+const minutesAgoTimestamp = (minutes: number) =>
+  new Date(Date.now() - minutes * 60 * 1000).toISOString()
+
+const yesterdayAtTimestamp = (hour: number, minute: number) => {
+  const date = new Date()
+  date.setDate(date.getDate() - 1)
+  date.setHours(hour, minute, 0, 0)
+  return date.toISOString()
+}
+
 const mockSnapshots: Snapshot[] = [
   {
     id: 'snapshot-1',
-    title: 'Door shelves • Morning check-in',
-    capturedAt: 'Captured 8 minutes ago',
+    timestamp: minutesAgoTimestamp(8),
     imageUrl:
       'https://images.unsplash.com/photo-1582719478248-52c9c1f4e5f3?auto=format&fit=crop&w=1200&q=80',
     contents: [
@@ -17,8 +26,7 @@ const mockSnapshots: Snapshot[] = [
   },
   {
     id: 'snapshot-2',
-    title: 'Produce drawer • Post-grocery',
-    capturedAt: 'Captured 1h ago',
+    timestamp: yesterdayAtTimestamp(12, 0),
     imageUrl:
       'https://images.unsplash.com/photo-1502741338009-cac2772e18bc?auto=format&fit=crop&w=1200&q=80',
     contents: [
@@ -30,8 +38,7 @@ const mockSnapshots: Snapshot[] = [
   },
   {
     id: 'snapshot-3',
-    title: 'Freezer overview • Evening',
-    capturedAt: 'Captured yesterday at 9:14 PM',
+    timestamp: yesterdayAtTimestamp(21, 14),
     imageUrl:
       'https://images.unsplash.com/photo-1613479492651-449289f22f19?auto=format&fit=crop&w=1200&q=80',
     contents: [
