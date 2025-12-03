@@ -65,6 +65,8 @@ def signup():
 
     if not email or not password:
         return jsonify(error="email and password are required"), 400
+    if len(password) < 5:
+        return jsonify(error="password must be at least 5 characters"), 400
 
     auth_ctx = _get_auth_context()
     if auth_ctx.error_response:
