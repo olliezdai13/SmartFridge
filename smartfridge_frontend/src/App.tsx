@@ -19,7 +19,7 @@ function App() {
 
     const checkHealth = async () => {
       try {
-        const data = await apiClient.get<{ status?: string; message?: string } | string>('/health')
+        const data = await apiClient.request<{ status?: string; message?: string } | string>('/healthz')
         const detail =
           typeof data === 'string' ? data : data?.message ?? data?.status ?? 'API healthy'
         showToast(detail, 'success')

@@ -103,26 +103,6 @@ export class ApiClient {
     const response = await fetch(this.buildUrl(path), requestInit)
     return this.handleResponse<T>(path, response)
   }
-
-  get<T>(path: string, init?: RequestInit) {
-    return this.request<T>(path, { ...init, method: 'GET' })
-  }
-
-  post<T>(path: string, body?: unknown, init?: RequestInit) {
-    return this.request<T>(path, { ...init, method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined })
-  }
-
-  put<T>(path: string, body?: unknown, init?: RequestInit) {
-    return this.request<T>(path, { ...init, method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined })
-  }
-
-  patch<T>(path: string, body?: unknown, init?: RequestInit) {
-    return this.request<T>(path, { ...init, method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined })
-  }
-
-  delete<T>(path: string, init?: RequestInit) {
-    return this.request<T>(path, { ...init, method: 'DELETE' })
-  }
 }
 
 export const apiClient = new ApiClient()
