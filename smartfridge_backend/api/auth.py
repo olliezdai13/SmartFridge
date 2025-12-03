@@ -1,29 +1,76 @@
-"""Lightweight shared-secret guard for API endpoints."""
+"""Authentication helpers for API request handling."""
 
 from __future__ import annotations
 
-from flask import current_app, jsonify, request
+import uuid
+
+import jwt
+from flask import current_app, g, jsonify, request
+from sqlalchemy.exc import SQLAlchemyError
+
+from smartfridge_backend.api.deps import get_sessionmaker
+from smartfridge_backend.models import User
+from smartfridge_backend.services.auth_tokens import AuthSettings, decode_token
+
+_SKIP_PATH_PREFIXES = ("/api/auth",)
+_SKIP_PATHS = {"/healthz", "/api/healthz"}
 
 
-def require_shared_secret():
-    """Enforce the presence of the configured shared secret on incoming requests."""
+def attach_user_from_access_cookie():
+    """Load the authenticated user from the access cookie and attach it to ``g``."""
 
-    shared_secret = current_app.config.get("API_SHARED_SECRET")
-    if not shared_secret:
-        return jsonify(error="API shared secret is not configured"), 503
+    path = request.path or ""
+    if not _should_enforce_auth(path):
+        return None
 
-    token = _extract_token()
-    if not token or token != shared_secret:
+    try:
+        settings = AuthSettings.load()
+    except RuntimeError as exc:
+        return jsonify(error=str(exc)), 503
+
+    access_token = request.cookies.get(settings.access_cookie_name)
+    if not access_token:
         return jsonify(error="unauthorized"), 401
 
+    try:
+        payload = decode_token(
+            access_token, settings=settings, expected_type="access"
+        )
+    except jwt.ExpiredSignatureError:
+        return jsonify(error="token expired"), 401
+    except (jwt.InvalidTokenError, ValueError) as exc:
+        current_app.logger.warning("invalid access token: %s", exc)
+        return jsonify(error="unauthorized"), 401
+
+    user_id = payload.get("sub")
+    try:
+        user_uuid = uuid.UUID(str(user_id))
+    except (TypeError, ValueError):
+        return jsonify(error="unauthorized"), 401
+
+    try:
+        session_factory = get_sessionmaker()
+    except RuntimeError as exc:
+        return jsonify(error=str(exc)), 503
+
+    try:
+        with session_factory() as session:
+            user = session.get(User, user_uuid)
+    except SQLAlchemyError:
+        current_app.logger.exception("failed to load user for request")
+        return jsonify(error="failed to load user"), 500
+
+    if user is None:
+        return jsonify(error="unauthorized"), 401
+
+    g.user = user
+    g.user_id = user.id
     return None
 
 
-def _extract_token() -> str | None:
-    """Pull a bearer token or fallback header from the request."""
-
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.lower().startswith("bearer "):
-        return auth_header[7:].strip()
-
-    return request.headers.get("X-API-Token")
+def _should_enforce_auth(path: str) -> bool:
+    if not path.startswith("/api"):
+        return False
+    if path in _SKIP_PATHS:
+        return False
+    return not any(path.startswith(prefix) for prefix in _SKIP_PATH_PREFIXES)

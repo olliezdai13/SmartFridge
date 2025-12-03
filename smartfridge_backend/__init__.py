@@ -31,6 +31,14 @@ def create_app() -> Flask:
     """Application factory for the SmartFridge backend."""
     app = Flask(__name__)
 
+    auth_secret = os.environ.get("SMARTFRIDGE_AUTH_SECRET")
+    if auth_secret:
+        app.config["AUTH_SECRET"] = auth_secret
+    else:
+        app.logger.warning(
+            "SMARTFRIDGE_AUTH_SECRET not set; authentication endpoints will be disabled"
+        )
+
     app.config["API_SHARED_SECRET"] = os.environ.get(
         "SMARTFRIDGE_API_SHARED_SECRET"
     )
