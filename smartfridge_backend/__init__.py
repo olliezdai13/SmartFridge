@@ -39,10 +39,6 @@ def create_app() -> Flask:
             "SMARTFRIDGE_AUTH_SECRET not set; authentication endpoints will be disabled"
         )
 
-    app.config["API_SHARED_SECRET"] = os.environ.get(
-        "SMARTFRIDGE_API_SHARED_SECRET"
-    )
-
     _configure_logging(app)
     _init_database(app)
 
