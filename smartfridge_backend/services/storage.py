@@ -91,6 +91,27 @@ class S3SnapshotStorage:
             raise SnapshotStorageError("downloaded object was empty")
         return body
 
+    def build_image_url(
+        self,
+        *,
+        bucket: str | None,
+        key: str,
+        expires_in: int = 3600,
+    ) -> str:
+        """Return a presigned URL that can be used to fetch the image."""
+
+        try:
+            return self._client.generate_presigned_url(
+                "get_object",
+                Params={
+                    "Bucket": bucket or self._settings.bucket,
+                    "Key": key,
+                },
+                ExpiresIn=expires_in,
+            )
+        except (BotoCoreError, ClientError) as exc:  # pragma: no cover - external
+            raise SnapshotStorageError("failed to generate snapshot URL") from exc
+
 
 def init_snapshot_storage(settings: SnapshotStorageSettings) -> S3SnapshotStorage:
     """Factory to mirror the init_* pattern used across services."""

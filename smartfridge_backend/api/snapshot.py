@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from flask import Blueprint, current_app, g, jsonify, request
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import selectinload
 
 from smartfridge_backend.api.deps import get_db_session
+from smartfridge_backend.models import FridgeSnapshot, SnapshotItem
 from smartfridge_backend.services.ingestion import create_snapshot_request
 from smartfridge_backend.services.storage import (
     S3SnapshotStorage,
@@ -23,6 +26,44 @@ def _get_snapshot_storage() -> S3SnapshotStorage:
     if storage is None:
         raise RuntimeError("snapshot storage client is not configured")
     return storage
+
+
+def _build_image_url(
+    snapshot: FridgeSnapshot, storage: S3SnapshotStorage
+) -> str:
+    try:
+        return storage.build_image_url(
+            bucket=snapshot.image_bucket, key=snapshot.image_key
+        )
+    except SnapshotStorageError:
+        current_app.logger.exception(
+            "failed to generate snapshot URL",
+            extra={"snapshot_id": str(snapshot.id)},
+        )
+        return f"s3://{snapshot.image_bucket}/{snapshot.image_key}"
+
+
+def _serialize_snapshot(
+    snapshot: FridgeSnapshot, storage: S3SnapshotStorage
+) -> dict[str, object]:
+    contents = []
+    for item in snapshot.items:
+        product = item.product
+        if product is None or not product.name:
+            continue
+        contents.append(
+            {
+                "name": product.name,
+                "quantity": max(int(item.quantity), 1),
+            }
+        )
+
+    return {
+        "id": str(snapshot.id),
+        "timestamp": snapshot.created_at.isoformat(),
+        "imageUrl": _build_image_url(snapshot, storage),
+        "contents": contents,
+    }
 
 
 @bp.post("/snapshot")
@@ -83,4 +124,52 @@ def create_snapshot():
             filename=stored_image.filename,
         ),
         202,
+    )
+
+
+@bp.get("/snapshots")
+def list_snapshots():
+    """Return all snapshots for the authenticated user."""
+
+    try:
+        storage = _get_snapshot_storage()
+    except RuntimeError as exc:
+        return jsonify(error=str(exc)), 503
+
+    try:
+        session = get_db_session()
+    except RuntimeError as exc:
+        return jsonify(error=str(exc)), 503
+
+    user_id = getattr(g, "user_id", None)
+    if user_id is None:
+        return jsonify(error="unauthorized"), 401
+
+    try:
+        snapshots = (
+            session.execute(
+                select(FridgeSnapshot)
+                .options(
+                    selectinload(FridgeSnapshot.items).selectinload(
+                        SnapshotItem.product
+                    )
+                )
+                .where(FridgeSnapshot.user_id == user_id)
+                .order_by(FridgeSnapshot.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+    except SQLAlchemyError:
+        current_app.logger.exception(
+            "failed to load snapshots for user", extra={"user_id": str(user_id)}
+        )
+        return jsonify(error="failed to load snapshots"), 500
+    finally:
+        session.close()
+
+    return jsonify(
+        snapshots=[
+            _serialize_snapshot(snapshot, storage) for snapshot in snapshots
+        ]
     )
