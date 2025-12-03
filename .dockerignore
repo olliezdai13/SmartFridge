@@ -3,3 +3,5 @@ __pycache__/
 .git
 README.md
 LLM_INSTRUCTIONS.md
+smartfridge_frontend/node_modules
+smartfridge_frontend/dist

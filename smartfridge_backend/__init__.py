@@ -1,7 +1,8 @@
 import logging
 import os
+from pathlib import Path
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -19,6 +20,10 @@ from smartfridge_backend.services.worker import SnapshotJobWorker, WorkerSetting
 from smartfridge_backend.services.storage import (
     SnapshotStorageSettings,
     init_snapshot_storage,
+)
+
+FRONTEND_DIST_DIR = (
+    Path(__file__).resolve().parent.parent / "smartfridge_frontend" / "dist"
 )
 
 
@@ -78,6 +83,7 @@ def create_app() -> Flask:
 
     init_api(app)
     _maybe_start_worker(app)
+    _register_frontend(app)
 
     return app
 
@@ -154,6 +160,26 @@ def _maybe_start_worker(app: Flask) -> None:
     )
     worker.start(concurrency=concurrency)
     app.extensions["snapshot_worker"] = worker
+
+
+def _register_frontend(app: Flask) -> None:
+    """Serve the built frontend bundle when available."""
+
+    if not FRONTEND_DIST_DIR.exists():
+        app.logger.warning(
+            "frontend bundle missing; UI routes will return 404",
+            extra={"path": str(FRONTEND_DIST_DIR)},
+        )
+        return
+
+    @app.route("/", defaults={"path": ""})
+    @app.route("/<path:path>")
+    def _serve_frontend(path: str):
+        asset_path = FRONTEND_DIST_DIR / path
+        if path and asset_path.exists():
+            return send_from_directory(FRONTEND_DIST_DIR, path)
+
+        return send_from_directory(FRONTEND_DIST_DIR, "index.html")
 
 
 app = create_app()
