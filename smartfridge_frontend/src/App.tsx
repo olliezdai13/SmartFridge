@@ -102,7 +102,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [navigate, showToast])
+  }, [isAuthPath, navigate, showToast])
 
   const handleAuthSuccess = useCallback(
     (user: UserProfile, mode: 'login' | 'signup') => {
