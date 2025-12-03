@@ -433,9 +433,10 @@
   display: grid;
   gap: 10px;
   max-height: 220px;
-  overflow-y: auto;
+  overflow-y: scroll;
   padding-right: 4px;
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
 }
 
 .inventory-row {
