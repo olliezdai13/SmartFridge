@@ -16,8 +16,8 @@ RefreshTokenType = Literal["refresh"]
 TokenType = AccessTokenType | RefreshTokenType
 
 # Defaults keep tokens short-lived and predictable.
-DEFAULT_ACCESS_TOKEN_TTL = timedelta(minutes=15)
-DEFAULT_REFRESH_TOKEN_TTL = timedelta(days=30)
+DEFAULT_ACCESS_TOKEN_TTL = timedelta(minutes=60)
+DEFAULT_REFRESH_TOKEN_TTL = timedelta(days=90)
 DEFAULT_ACCESS_COOKIE_NAME = "sf_access"
 DEFAULT_REFRESH_COOKIE_NAME = "sf_refresh"
 DEFAULT_COOKIE_PATH = "/"
