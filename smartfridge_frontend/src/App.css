@@ -432,6 +432,10 @@
   padding: 0;
   display: grid;
   gap: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
 }
 
 .inventory-row {
@@ -459,6 +463,19 @@
   gap: 8px;
   font-weight: 600;
   color: #223356;
+}
+
+.inventory-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.inventory-list::-webkit-scrollbar-thumb {
+  background: #cbd6e6;
+  border-radius: 999px;
+}
+
+.inventory-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .carousel-progress {
