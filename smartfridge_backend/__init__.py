@@ -60,6 +60,10 @@ def create_app() -> Flask:
     def healthcheck():
         return jsonify(status="ok")
 
+    @app.get("/api/healthz")
+    def api_healthcheck():
+        return jsonify(status="ok")
+
     llm_api_key = os.environ.get("SMARTFRIDGE_LLM_API_KEY") or os.environ.get(
         "OPENAI_API_KEY"
     )
