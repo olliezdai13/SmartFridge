@@ -1,67 +1,222 @@
-import { useEffect, useState } from 'react'
-import { NavLink, Route, Routes } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactElement } from 'react'
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
-import { ApiError, apiClient } from './api'
+import AuthPage from './pages/Auth'
+import { ApiError, apiClient, clearAuthErrorHandler, registerAuthErrorHandler } from './api'
 import Toast from './components/Toast'
+import type { UserProfile } from './types'
 import './App.css'
 
+type AuthState = {
+  status: 'loading' | 'authenticated' | 'unauthenticated'
+  user: UserProfile | null
+}
+
+type ToastState = { message: string; tone: 'success' | 'error' } | null
+
 function App() {
-  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [toast, setToast] = useState<ToastState>(null)
+  const [authState, setAuthState] = useState<AuthState>({ status: 'loading', user: null })
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const latestPathRef = useRef(location.pathname)
 
   useEffect(() => {
-    let clearToast: ReturnType<typeof setTimeout> | undefined
+    latestPathRef.current = location.pathname
+  }, [location.pathname])
 
-    const showToast = (message: string, tone: 'success' | 'error') => {
-      setToast({ message, tone })
-      if (clearToast) clearTimeout(clearToast)
-      clearToast = setTimeout(() => setToast(null), 5000)
+  const resetToast = useCallback(() => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current)
+      toastTimeoutRef.current = null
     }
+    setToast(null)
+  }, [])
 
-    const checkHealth = async () => {
+  const showToast = useCallback(
+    (message: string, tone: 'success' | 'error') => {
+      resetToast()
+      setToast({ message, tone })
+      toastTimeoutRef.current = setTimeout(() => setToast(null), 5000)
+    },
+    [resetToast],
+  )
+
+  useEffect(() => {
+    return () => resetToast()
+  }, [resetToast])
+
+  const isAuthPath = useCallback((path: string) => {
+    return path.startsWith('/login') || path.startsWith('/signup')
+  }, [])
+
+  const redirectToLogin = useCallback(() => {
+    setAuthState({ status: 'unauthenticated', user: null })
+    resetToast()
+    const currentPath = latestPathRef.current
+    if (!isAuthPath(currentPath)) {
+      navigate('/login', { replace: true })
+    }
+  }, [isAuthPath, navigate, resetToast])
+
+  useEffect(() => {
+    registerAuthErrorHandler(() => {
+      redirectToLogin()
+    })
+
+    return () => {
+      clearAuthErrorHandler()
+    }
+  }, [redirectToLogin])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const bootstrapAuth = async () => {
       try {
-        const data = await apiClient.request<{ status?: string; message?: string } | string>('/healthz')
-        const detail =
-          typeof data === 'string' ? data : data?.message ?? data?.status ?? 'API healthy'
-        showToast(detail, 'success')
+        const data = await apiClient.request<{ user: UserProfile }>('/auth/me')
+        if (cancelled) return
+        setAuthState({ status: 'authenticated', user: data.user })
       } catch (error) {
-        const statusText = error instanceof ApiError ? `${error.status}` : 'network'
-        const detail =
-          error instanceof ApiError && typeof error.payload === 'string'
-            ? error.payload
-            : 'Unable to reach API healthcheck'
-        showToast(`Healthcheck failed (${statusText}): ${detail}`, 'error')
+        if (cancelled) return
+
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          setAuthState({ status: 'unauthenticated', user: null })
+          const currentPath = latestPathRef.current
+          const onAuthScreen = isAuthPath(currentPath)
+          if (!onAuthScreen) {
+            navigate('/login', { replace: true })
+          }
+        } else {
+          setAuthState({ status: 'unauthenticated', user: null })
+          showToast('Unable to confirm your session. Please log in again.', 'error')
+        }
       }
     }
 
-    void checkHealth()
+    void bootstrapAuth()
 
     return () => {
-      if (clearToast) clearTimeout(clearToast)
+      cancelled = true
     }
-  }, [])
+  }, [navigate, showToast])
+
+  const handleAuthSuccess = useCallback(
+    (user: UserProfile, mode: 'login' | 'signup') => {
+      setAuthState({ status: 'authenticated', user })
+      const message = mode === 'login' ? 'Signed in successfully' : 'Account created and signed in'
+      showToast(message, 'success')
+      navigate('/dashboard', { replace: true })
+    },
+    [navigate, showToast],
+  )
+
+  const handleLogout = useCallback(async () => {
+    if (isLoggingOut) return
+    setIsLoggingOut(true)
+    try {
+      await apiClient.request('/auth/logout', { method: 'POST' })
+    } catch (error) {
+      const detail =
+        error instanceof ApiError && typeof error.payload === 'string'
+          ? error.payload
+          : 'Unable to log out right now'
+      showToast(detail, 'error')
+    } finally {
+      setAuthState({ status: 'unauthenticated', user: null })
+      resetToast()
+      navigate('/login', { replace: true })
+      setIsLoggingOut(false)
+    }
+  }, [isLoggingOut, navigate, resetToast, showToast])
+
+  const isAuthenticated = authState.status === 'authenticated'
+  const isAuthScreen = isAuthPath(location.pathname)
 
   return (
     <>
       <div className="app-shell">
-        <header className="app-header">
-          <div className="brand">
-            <span className="brand-mark">SF</span>
-            <div className="brand-text">
-              <span className="brand-title">SmartFridge</span>
-              <span className="brand-subtitle">Freshness at a glance</span>
+        {!isAuthScreen && (
+          <header className="app-header">
+            <div className="brand">
+              <span className="brand-mark">SF</span>
+              <div className="brand-text">
+                <span className="brand-title">SmartFridge</span>
+                <span className="brand-subtitle">Freshness at a glance</span>
+              </div>
             </div>
-          </div>
-          <nav className="nav-links">
-            <NavLink to="/dashboard" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
-              Dashboard
-            </NavLink>
-          </nav>
-        </header>
+            <nav className="nav-links">
+              {isAuthenticated ? (
+                <>
+                  <NavLink
+                    to="/dashboard"
+                    className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+                  >
+                    Dashboard
+                  </NavLink>
+                  <span className="user-chip">{authState.user?.name ?? authState.user?.email}</span>
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={handleLogout}
+                    disabled={isLoggingOut}
+                  >
+                    {isLoggingOut ? 'Logging out…' : 'Log out'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <NavLink
+                    to="/login"
+                    className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+                  >
+                    Log in
+                  </NavLink>
+                  <NavLink
+                    to="/signup"
+                    className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+                  >
+                    Sign up
+                  </NavLink>
+                </>
+              )}
+            </nav>
+          </header>
+        )}
 
         <main className="app-main">
           <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute authState={authState}>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/login"
+              element={
+                <AuthRoute authState={authState}>
+                  <AuthPage mode="login" onAuthSuccess={(user) => handleAuthSuccess(user, 'login')} />
+                </AuthRoute>
+              }
+            />
+            <Route
+              path="/signup"
+              element={
+                <AuthRoute authState={authState}>
+                  <AuthPage
+                    mode="signup"
+                    onAuthSuccess={(user) => handleAuthSuccess(user, 'signup')}
+                  />
+                </AuthRoute>
+              }
+            />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
@@ -77,6 +232,41 @@ function NotFound() {
     <div className="surface not-found">
       <h2>Page not found</h2>
       <p className="muted">We could not find that page. Try heading back to your dashboard.</p>
+    </div>
+  )
+}
+
+function ProtectedRoute({ authState, children }: { authState: AuthState; children: ReactElement }) {
+  const location = useLocation()
+
+  if (authState.status === 'loading') {
+    return <CenteredState title="Checking access" message="Hold on while we confirm your session." />
+  }
+
+  if (authState.status === 'unauthenticated') {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  }
+
+  return children
+}
+
+function AuthRoute({ authState, children }: { authState: AuthState; children: ReactElement }) {
+  if (authState.status === 'loading') {
+    return <CenteredState title="Loading" message="Preparing the login screen..." />
+  }
+
+  if (authState.status === 'authenticated') {
+    return <Navigate to="/dashboard" replace />
+  }
+
+  return children
+}
+
+function CenteredState({ title, message }: { title: string; message: string }) {
+  return (
+    <div className="surface centered-state">
+      <h2>{title}</h2>
+      <p className="muted">{message}</p>
     </div>
   )
 }

@@ -93,6 +93,42 @@
   margin-top: 28px;
 }
 
+.user-chip {
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: #f1f4fb;
+  color: #1c2b4f;
+  font-weight: 600;
+  border: 1px solid #dbe3ef;
+}
+
+.ghost-btn {
+  padding: 9px 14px;
+  border-radius: 12px;
+  border: 1px solid #dfe4ed;
+  background: #ffffff;
+  color: #1c2b4f;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease;
+}
+
+.ghost-btn:hover {
+  background: #f5f7fb;
+  border-color: #cfd7e6;
+  color: #0d6b5a;
+  box-shadow: 0 12px 24px -20px rgba(10, 28, 72, 0.4);
+}
+
+.ghost-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .surface {
   background: #ffffff;
   border-radius: 18px;
@@ -194,6 +230,124 @@
 .not-found {
   text-align: center;
   color: #5c6475;
+}
+
+.centered-state {
+  text-align: center;
+}
+
+.centered-state h2 {
+  margin: 0 0 6px;
+}
+
+.text-input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #dfe4ed;
+  background: #f9fbff;
+  font-size: 1rem;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background-color 140ms ease;
+}
+
+.text-input:focus {
+  outline: none;
+  border-color: #9ac7bc;
+  box-shadow: 0 0 0 3px rgba(74, 194, 154, 0.18);
+  background: #ffffff;
+}
+
+.form-field {
+  display: grid;
+  gap: 8px;
+}
+
+.field-label {
+  font-weight: 700;
+  color: #1c2b4f;
+}
+
+.field-hint {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.field-error {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff3f3;
+  border: 1px solid #f1c1c1;
+  color: #7d1b1b;
+  font-weight: 600;
+}
+
+.primary-btn {
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  background: linear-gradient(135deg, #3ba78f, #0f7f93);
+  color: #ffffff;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  box-shadow: 0 14px 32px -18px rgba(11, 97, 86, 0.6);
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    filter 140ms ease;
+}
+
+.primary-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 38px -16px rgba(11, 97, 86, 0.5);
+}
+
+.primary-btn:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.2);
+  transform: none;
+  box-shadow: none;
+}
+
+.auth-surface {
+  max-width: 640px;
+  margin: 0 auto;
+  display: grid;
+  gap: 16px;
+}
+
+.auth-intro {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.auth-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.auth-switch .link {
+  color: #0d6b5a;
+  font-weight: 700;
+  text-decoration: underline;
 }
 
 /* Toasts */
