@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 from sqlalchemy.exc import SQLAlchemyError
 
 from smartfridge_backend.api.deps import get_db_session
@@ -12,10 +12,6 @@ from smartfridge_backend.services.storage import (
     SnapshotStorageError,
 )
 from smartfridge_backend.services.uploads import save_image_upload
-from smartfridge_backend.services.users import (
-    DEFAULT_USER_ID,
-    get_or_create_default_user,
-)
 
 bp = Blueprint("snapshot", __name__, url_prefix="/api")
 
@@ -48,13 +44,16 @@ def create_snapshot():
     except RuntimeError as exc:
         return jsonify(error=str(exc)), 503
 
+    user = getattr(g, "user", None)
+    if user is None:
+        return jsonify(error="unauthorized"), 401
+
     try:
         stored_image, _ = save_image_upload(
             image_file,
             storage,
-            user_id=str(DEFAULT_USER_ID),
+            user_id=str(user.id),
         )
-        user = get_or_create_default_user(session)
         snapshot = create_snapshot_request(
             session=session,
             user=user,

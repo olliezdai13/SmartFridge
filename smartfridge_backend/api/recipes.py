@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any, Mapping, Sequence
 
-from flask import Blueprint, current_app, jsonify
+from flask import Blueprint, current_app, g, jsonify
 import requests
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -14,7 +14,6 @@ from smartfridge_backend.services.inventory import (
     InventoryItem,
     fetch_latest_items_for_user,
 )
-from smartfridge_backend.services.users import DEFAULT_USER_ID
 
 bp = Blueprint("recipes", __name__, url_prefix="/api")
 
@@ -102,10 +101,12 @@ def prepare_recipes_query():
     except RuntimeError as exc:
         return jsonify(error=str(exc)), 503
 
+    user_id = getattr(g, "user_id", None)
+    if user_id is None:
+        return jsonify(error="unauthorized"), 401
+
     try:
-        items = fetch_latest_items_for_user(
-            session_factory, user_id=DEFAULT_USER_ID
-        )
+        items = fetch_latest_items_for_user(session_factory, user_id=user_id)
     except SQLAlchemyError:
         current_app.logger.exception("failed to load fridge inventory")
         return jsonify(error="failed to load fridge inventory"), 500
