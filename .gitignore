@@ -121,3 +121,5 @@ images/
 
 # any environment vars
 *.env*
+
+cookies.txt

@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, current_app, g, jsonify, request
+from io import BytesIO
+import mimetypes
+import uuid
+
+from flask import (
+    Blueprint,
+    current_app,
+    g,
+    jsonify,
+    request,
+    send_file,
+    url_for,
+)
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
@@ -28,24 +40,7 @@ def _get_snapshot_storage() -> S3SnapshotStorage:
     return storage
 
 
-def _build_image_url(
-    snapshot: FridgeSnapshot, storage: S3SnapshotStorage
-) -> str:
-    try:
-        return storage.build_image_url(
-            bucket=snapshot.image_bucket, key=snapshot.image_key
-        )
-    except SnapshotStorageError:
-        current_app.logger.exception(
-            "failed to generate snapshot URL",
-            extra={"snapshot_id": str(snapshot.id)},
-        )
-        return f"s3://{snapshot.image_bucket}/{snapshot.image_key}"
-
-
-def _serialize_snapshot(
-    snapshot: FridgeSnapshot, storage: S3SnapshotStorage
-) -> dict[str, object]:
+def _serialize_snapshot(snapshot: FridgeSnapshot) -> dict[str, object]:
     contents = []
     for item in snapshot.items:
         product = item.product
@@ -61,7 +56,11 @@ def _serialize_snapshot(
     return {
         "id": str(snapshot.id),
         "timestamp": snapshot.created_at.isoformat(),
-        "imageUrl": _build_image_url(snapshot, storage),
+        "imageUrl": url_for(
+            "snapshot.get_snapshot_image",
+            snapshot_id=str(snapshot.id),
+            _external=True,
+        ),
         "contents": contents,
     }
 
@@ -132,11 +131,6 @@ def list_snapshots():
     """Return all snapshots for the authenticated user."""
 
     try:
-        storage = _get_snapshot_storage()
-    except RuntimeError as exc:
-        return jsonify(error=str(exc)), 503
-
-    try:
         session = get_db_session()
     except RuntimeError as exc:
         return jsonify(error=str(exc)), 503
@@ -170,6 +164,71 @@ def list_snapshots():
 
     return jsonify(
         snapshots=[
-            _serialize_snapshot(snapshot, storage) for snapshot in snapshots
+            _serialize_snapshot(snapshot) for snapshot in snapshots
         ]
     )
+
+
+@bp.get("/snapshots/<uuid:snapshot_id>/image")
+def get_snapshot_image(snapshot_id: uuid.UUID):
+    """Return the raw image bytes for a snapshot owned by the active user."""
+
+    try:
+        storage = _get_snapshot_storage()
+    except RuntimeError as exc:
+        return jsonify(error=str(exc)), 503
+
+    try:
+        session = get_db_session()
+    except RuntimeError as exc:
+        return jsonify(error=str(exc)), 503
+
+    user_id = getattr(g, "user_id", None)
+    if user_id is None:
+        return jsonify(error="unauthorized"), 401
+
+    try:
+        snapshot = (
+            session.execute(
+                select(FridgeSnapshot)
+                .where(
+                    FridgeSnapshot.id == snapshot_id,
+                    FridgeSnapshot.user_id == user_id,
+                )
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
+    except SQLAlchemyError:
+        current_app.logger.exception(
+            "failed to load snapshot for image fetch",
+            extra={"snapshot_id": str(snapshot_id), "user_id": str(user_id)},
+        )
+        return jsonify(error="failed to load snapshot"), 500
+    finally:
+        session.close()
+
+    if snapshot is None:
+        return jsonify(error="snapshot not found"), 404
+
+    try:
+        image_bytes = storage.fetch_image_bytes(
+            bucket=snapshot.image_bucket,
+            key=snapshot.image_key,
+        )
+    except SnapshotStorageError as exc:
+        current_app.logger.exception(
+            "failed to download snapshot image",
+            extra={"snapshot_id": str(snapshot_id)},
+        )
+        return jsonify(error=str(exc)), 502
+
+    mime_type, _ = mimetypes.guess_type(snapshot.image_filename)
+    response = send_file(
+        BytesIO(image_bytes),
+        mimetype=mime_type or "application/octet-stream",
+        download_name=snapshot.image_filename,
+    )
+    response.headers["Cache-Control"] = "private, max-age=3600"
+    return response
