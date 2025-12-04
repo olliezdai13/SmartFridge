@@ -10,6 +10,8 @@ export type Snapshot = {
   contents: SnapshotContent[]
 }
 
+const transparentPixel = 'data:image/gif;base64,R0lGODlhAQABAAAAACw='
+
 const getTimeOfDayLabel = (date: Date) => {
   const hour = date.getHours()
   if (hour < 5) return 'Late Night'
@@ -57,20 +59,42 @@ const formatCapturedAt = (date: Date) => {
 
 type SnapshotCardProps = {
   snapshot: Snapshot
+  isActive?: boolean
+  isLoaded?: boolean
+  shouldLoadImage?: boolean
+  onImageLoad?: (snapshotId: string) => void
 }
 
-function SnapshotCard({ snapshot }: SnapshotCardProps) {
+function SnapshotCard({
+  snapshot,
+  isActive = false,
+  isLoaded = false,
+  shouldLoadImage = false,
+  onImageLoad,
+}: SnapshotCardProps) {
   const parsedDate = new Date(snapshot.timestamp)
   const hasValidDate = !Number.isNaN(parsedDate.getTime())
   const timeOfDay = hasValidDate ? getTimeOfDayLabel(parsedDate) : 'Recent'
   const displayTitle = `Fridge • ${timeOfDay} Snapshot`
   const capturedAt = hasValidDate ? formatCapturedAt(parsedDate) : 'Captured recently'
   const isLoadingContents = snapshot.contents.length === 0
+  const loadingMode: 'lazy' | 'eager' = isActive ? 'eager' : 'lazy'
+  const shouldShowImage = shouldLoadImage || isLoaded
+  const imgSrc = shouldShowImage ? snapshot.imageUrl : transparentPixel
 
   return (
     <article className="snapshot-card" aria-label={`${displayTitle} snapshot`}>
       <div className="snapshot-image">
-        <img src={snapshot.imageUrl} alt={`${displayTitle} view`} loading="lazy" />
+        <img
+          src={imgSrc}
+          alt={`${displayTitle} view`}
+          loading={loadingMode}
+          onLoad={() => {
+            if (shouldShowImage) {
+              onImageLoad?.(snapshot.id)
+            }
+          }}
+        />
         <div className="snapshot-chip">{capturedAt}</div>
       </div>
 
