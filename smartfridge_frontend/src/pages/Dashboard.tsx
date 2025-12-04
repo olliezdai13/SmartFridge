@@ -38,13 +38,6 @@ function Dashboard() {
 
   return (
     <section className="surface dashboard">
-      <header className="dashboard-header">
-        <div>
-          <h1 className="section-heading">Dashboard</h1>
-        </div>
-        <div className="pill secondary">Carousel view</div>
-      </header>
-
       {loading && <p className="muted">Loading snapshots...</p>}
       {error && <p className="error">{error}</p>}
       {!loading && !error && <SnapshotCarousel snapshots={snapshots} />}
