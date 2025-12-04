@@ -106,7 +106,7 @@ function SnapshotCard({
         {isLoadingContents ? (
           <div className="inventory-loading" role="status" aria-live="polite">
             <div className="loading-spinner" aria-hidden="true" />
-            <p className="muted">Parsing items from this snapshot...</p>
+            <p className="muted">Analyzing fridge contents...</p>
           </div>
         ) : (
           <ul className="inventory-list" aria-label="Latest fridge contents">

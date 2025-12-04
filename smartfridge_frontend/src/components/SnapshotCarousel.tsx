@@ -1,18 +1,54 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import SnapshotCard, { type Snapshot } from './SnapshotCard'
 
 type SnapshotCarouselProps = {
   snapshots: Snapshot[]
+  hasMore?: boolean
+  loadingMore?: boolean
+  onRequestMore?: () => void
 }
 
-function SnapshotCarousel({ snapshots }: SnapshotCarouselProps) {
+function SnapshotCarousel({
+  snapshots,
+  hasMore = false,
+  loadingMore = false,
+  onRequestMore,
+}: SnapshotCarouselProps) {
   const orderedSnapshots = useMemo(() => [...snapshots].reverse(), [snapshots])
-  const [activeIndex, setActiveIndex] = useState(() => Math.max(orderedSnapshots.length - 1, 0))
+  const [activeIndex, setActiveIndex] = useState(0)
+  const [initialized, setInitialized] = useState(false)
+  const [pendingAdvanceIndex, setPendingAdvanceIndex] = useState<number | null>(null)
   const [loadedSnapshots, setLoadedSnapshots] = useState<Record<string, boolean>>({})
   const [readySnapshots, setReadySnapshots] = useState<Record<string, boolean>>({})
+
+  const maxIndex = Math.max(orderedSnapshots.length - 1, 0)
+  const currentIndex = Math.min(activeIndex, maxIndex)
+  const canGoPrev = currentIndex > 0 || (hasMore && !loadingMore)
+  const canGoNext = currentIndex < maxIndex
+
+  const prevLengthRef = useRef(orderedSnapshots.length)
+
   useEffect(() => {
-    setActiveIndex(Math.max(orderedSnapshots.length - 1, 0))
-  }, [orderedSnapshots.length])
+    const prevLength = prevLengthRef.current
+    const grewBy = orderedSnapshots.length - prevLength
+
+    if (!initialized && orderedSnapshots.length > 0) {
+      setActiveIndex(orderedSnapshots.length - 1)
+      setInitialized(true)
+    } else if (pendingAdvanceIndex !== null && orderedSnapshots.length > pendingAdvanceIndex) {
+      setActiveIndex(pendingAdvanceIndex)
+      setPendingAdvanceIndex(null)
+    } else if (grewBy > 0 && pendingAdvanceIndex === null) {
+      setActiveIndex((prev) => Math.min(prev + grewBy, Math.max(orderedSnapshots.length - 1, 0)))
+    }
+
+    if (activeIndex > Math.max(orderedSnapshots.length - 1, 0)) {
+      setActiveIndex(Math.max(orderedSnapshots.length - 1, 0))
+    }
+
+    prevLengthRef.current = orderedSnapshots.length
+  }, [activeIndex, initialized, orderedSnapshots.length, pendingAdvanceIndex])
+
   useEffect(() => {
     setLoadedSnapshots((prev) => {
       // Drop entries for snapshots no longer present to keep the map small.
@@ -40,22 +76,23 @@ function SnapshotCarousel({ snapshots }: SnapshotCarouselProps) {
       return next
     })
   }, [orderedSnapshots])
-  const maxIndex = Math.max(orderedSnapshots.length - 1, 0)
-  const currentIndex = Math.min(activeIndex, maxIndex)
-  const canGoPrev = currentIndex > 0
-  const canGoNext = currentIndex < maxIndex
   const handleImageLoad = (snapshotId: string) => {
     setLoadedSnapshots((prev) => (prev[snapshotId] ? prev : { ...prev, [snapshotId]: true }))
   }
 
   const handlePrev = () => {
-    if (canGoPrev) {
+    if (currentIndex > 0) {
       setActiveIndex((prev) => Math.max(Math.min(prev, maxIndex) - 1, 0))
+      return
+    }
+    if (hasMore && !loadingMore) {
+      setPendingAdvanceIndex(0)
+      onRequestMore?.()
     }
   }
 
   const handleNext = () => {
-    if (canGoNext) {
+    if (currentIndex < maxIndex) {
       setActiveIndex((prev) => Math.min(Math.min(prev, maxIndex) + 1, maxIndex))
     }
   }
@@ -124,6 +161,12 @@ function SnapshotCarousel({ snapshots }: SnapshotCarouselProps) {
           ›
         </button>
       </div>
+
+      {loadingMore && (
+        <p className="muted" aria-live="polite">
+          Loading more snapshots...
+        </p>
+      )}
 
       <div className="carousel-progress" aria-hidden="true">
         {orderedSnapshots.map((snapshot, index) => (

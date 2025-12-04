@@ -139,8 +139,13 @@ def list_snapshots():
     if user_id is None:
         return jsonify(error="unauthorized"), 401
 
+    raw_limit = request.args.get("limit", default=None, type=int)
+    raw_offset = request.args.get("offset", default=None, type=int)
+    limit = 5 if raw_limit is None else max(min(raw_limit, 50), 1)
+    offset = 0 if raw_offset is None else max(raw_offset, 0)
+
     try:
-        snapshots = (
+        snapshot_rows = (
             session.execute(
                 select(FridgeSnapshot)
                 .options(
@@ -149,7 +154,11 @@ def list_snapshots():
                     )
                 )
                 .where(FridgeSnapshot.user_id == user_id)
-                .order_by(FridgeSnapshot.created_at.desc())
+                .order_by(
+                    FridgeSnapshot.created_at.desc(), FridgeSnapshot.id.desc()
+                )
+                .offset(offset)
+                .limit(limit + 1)
             )
             .scalars()
             .all()
@@ -162,10 +171,16 @@ def list_snapshots():
     finally:
         session.close()
 
+    more_available = len(snapshot_rows) > limit
+    limited_snapshots = snapshot_rows[:limit]
+    next_offset = offset + len(limited_snapshots)
+
     return jsonify(
         snapshots=[
-            _serialize_snapshot(snapshot) for snapshot in snapshots
-        ]
+            _serialize_snapshot(snapshot) for snapshot in limited_snapshots
+        ],
+        hasMore=more_available,
+        nextOffset=next_offset,
     )
 
 
