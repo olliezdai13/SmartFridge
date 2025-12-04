@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import Dashboard from './pages/Dashboard'
 import AuthPage from './pages/Auth'
+import Dashboard from './pages/Dashboard'
+import Recipes from './pages/Recipes'
 import { ApiError, apiClient, clearAuthErrorHandler, registerAuthErrorHandler } from './api'
 import Toast from './components/Toast'
 import type { UserProfile } from './types'
@@ -149,40 +150,55 @@ function App() {
               </div>
             </div>
             <nav className="nav-links">
-              {isAuthenticated ? (
-                <>
-                  <NavLink
-                    to="/dashboard"
-                    className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
-                  >
-                    Dashboard
-                  </NavLink>
-                  <span className="user-chip">{authState.user?.name ?? authState.user?.email}</span>
-                  <button
-                    type="button"
-                    className="ghost-btn"
-                    onClick={handleLogout}
-                    disabled={isLoggingOut}
-                  >
-                    {isLoggingOut ? 'Logging out…' : 'Log out'}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <NavLink
-                    to="/login"
-                    className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
-                  >
-                    Log in
-                  </NavLink>
-                  <NavLink
-                    to="/signup"
-                    className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
-                  >
-                    Sign up
-                  </NavLink>
-                </>
-              )}
+              <div className="nav-group">
+                <NavLink
+                  to="/dashboard"
+                  className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+                >
+                  Dashboard
+                </NavLink>
+                <NavLink
+                  to="/recipes"
+                  className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+                >
+                  Recipes
+                </NavLink>
+              </div>
+
+              <div className="nav-actions">
+                {isAuthenticated ? (
+                  <>
+                    <span className="user-chip">{authState.user?.name ?? authState.user?.email}</span>
+                    <button
+                      type="button"
+                      className="ghost-btn nav-cta"
+                      onClick={handleLogout}
+                      disabled={isLoggingOut}
+                    >
+                      {isLoggingOut ? 'Logging out…' : 'Log out'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <NavLink
+                      to="/login"
+                      className={({ isActive }) =>
+                        isActive ? 'nav-link nav-cta active' : 'nav-link nav-cta'
+                      }
+                    >
+                      Log in
+                    </NavLink>
+                    <NavLink
+                      to="/signup"
+                      className={({ isActive }) =>
+                        isActive ? 'nav-link nav-cta primary active' : 'nav-link nav-cta primary'
+                      }
+                    >
+                      Sign up
+                    </NavLink>
+                  </>
+                )}
+              </div>
             </nav>
           </header>
         )}
@@ -195,6 +211,14 @@ function App() {
               element={
                 <ProtectedRoute authState={authState}>
                   <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/recipes"
+              element={
+                <ProtectedRoute authState={authState}>
+                  <Recipes />
                 </ProtectedRoute>
               }
             />
