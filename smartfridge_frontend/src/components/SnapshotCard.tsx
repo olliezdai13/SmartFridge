@@ -65,6 +65,7 @@ function SnapshotCard({ snapshot }: SnapshotCardProps) {
   const timeOfDay = hasValidDate ? getTimeOfDayLabel(parsedDate) : 'Recent'
   const displayTitle = `Fridge • ${timeOfDay} Snapshot`
   const capturedAt = hasValidDate ? formatCapturedAt(parsedDate) : 'Captured recently'
+  const isLoadingContents = snapshot.contents.length === 0
 
   return (
     <article className="snapshot-card" aria-label={`${displayTitle} snapshot`}>
@@ -78,18 +79,25 @@ function SnapshotCard({ snapshot }: SnapshotCardProps) {
           <h3 className="snapshot-title">{displayTitle}</h3>
         </div>
 
-        <ul className="inventory-list" aria-label="Latest fridge contents">
-          {snapshot.contents.map((item) => (
-            <li key={item.name} className="inventory-row">
-              <div className="inventory-name">
-                {item.name}
-              </div>
-              <div className="inventory-qty">
-                <span>{item.quantity}</span>
-              </div>
-            </li>
-          ))}
-        </ul>
+        {isLoadingContents ? (
+          <div className="inventory-loading" role="status" aria-live="polite">
+            <div className="loading-spinner" aria-hidden="true" />
+            <p className="muted">Parsing items from this snapshot...</p>
+          </div>
+        ) : (
+          <ul className="inventory-list" aria-label="Latest fridge contents">
+            {snapshot.contents.map((item) => (
+              <li key={item.name} className="inventory-row">
+                <div className="inventory-name">
+                  {item.name}
+                </div>
+                <div className="inventory-qty">
+                  <span>{item.quantity}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </article>
   )
