@@ -4,6 +4,7 @@ import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'reac
 import AuthPage from './pages/Auth'
 import Dashboard from './pages/Dashboard'
 import Recipes from './pages/Recipes'
+import Statistics from './pages/Statistics'
 import { ApiError, apiClient, clearAuthErrorHandler, registerAuthErrorHandler } from './api'
 import Toast from './components/Toast'
 import type { UserProfile } from './types'
@@ -163,6 +164,12 @@ function App() {
                 >
                   Recipes
                 </NavLink>
+                <NavLink
+                  to="/statistics"
+                  className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+                >
+                  Statistics
+                </NavLink>
               </div>
 
               <div className="nav-actions">
@@ -219,6 +226,14 @@ function App() {
               element={
                 <ProtectedRoute authState={authState}>
                   <Recipes />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/statistics"
+              element={
+                <ProtectedRoute authState={authState}>
+                  <Statistics />
                 </ProtectedRoute>
               }
             />

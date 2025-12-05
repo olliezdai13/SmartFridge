@@ -79,10 +79,7 @@ def ingredient_composition():
                 continue
 
             category_key = _normalize_category_key(product.category)
-            quantity = max(int(item.quantity), 1)
-            category_counts[category_key] = (
-                category_counts.get(category_key, 0) + quantity
-            )
+            category_counts[category_key] = category_counts.get(category_key, 0) + 1
 
         payload_snapshots.append(
             {
