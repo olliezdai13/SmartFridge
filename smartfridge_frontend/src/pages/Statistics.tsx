@@ -247,27 +247,22 @@ export default function Statistics() {
     if (values.length === 0) return { ticks: [], domain: ['dataMin', 'dataMax'] }
 
     const min = Math.min(...values)
-    const max = Math.max(...values)
-
-    const start = new Date(min)
-    start.setHours(0, 0, 0, 0)
-
-    const end = new Date(max)
-    end.setHours(0, 0, 0, 0)
-
-    const startMs = start.getTime()
-    const endMs = end.getTime()
+    const now = Date.now()
+    const domainEnd = Math.max(Math.max(...values), now)
 
     const tickValues: number[] = []
-    for (let t = startMs; t <= endMs; t += DAY_MS) {
+    tickValues.push(min)
+
+    const startOfNextDay = new Date(min)
+    startOfNextDay.setHours(24, 0, 0, 0)
+
+    for (let t = startOfNextDay.getTime(); t <= domainEnd; t += DAY_MS) {
       tickValues.push(t)
     }
 
-    const domainEnd = endMs + DAY_MS
-
     return {
-      ticks: tickValues.length > 0 ? tickValues : [startMs],
-      domain: [startMs, domainEnd],
+      ticks: tickValues,
+      domain: [min, domainEnd],
     }
   }, [stackedAreaData])
 
