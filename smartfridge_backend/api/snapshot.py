@@ -20,7 +20,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
 from smartfridge_backend.api.deps import get_db_session
-from smartfridge_backend.models import FridgeSnapshot, SnapshotItem
+from smartfridge_backend.models import (
+    FridgeSnapshot,
+    ProductCategory,
+    SnapshotItem,
+)
 from smartfridge_backend.services.ingestion import create_snapshot_request
 from smartfridge_backend.services.storage import (
     S3SnapshotStorage,
@@ -46,10 +50,18 @@ def _serialize_snapshot(snapshot: FridgeSnapshot) -> dict[str, object]:
         product = item.product
         if product is None or not product.name:
             continue
+        raw_category = (product.category or "").strip()
+        normalized_category = raw_category.upper() if raw_category else None
         contents.append(
             {
                 "name": product.name,
                 "quantity": max(int(item.quantity), 1),
+                "category": normalized_category,
+                "categoryLabel": (
+                    ProductCategory.key_value_map().get(normalized_category)
+                    if normalized_category
+                    else None
+                ),
             }
         )
 
