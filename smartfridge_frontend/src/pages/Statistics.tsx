@@ -37,6 +37,8 @@ type CompositionResponse = {
 
 type ChartDatum = { name: string; value: number }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
 const CATEGORY_ORDER: string[] = [
   'PROCESSED_FOODS',
   'FATS_OILS',
@@ -193,18 +195,21 @@ export default function Statistics() {
         )
       })
 
-      const parsed = new Date(entry.timestamp)
+      const timestamp = opts?.timestampOverride ?? entry.timestamp
+      const parsed = new Date(timestamp)
       const parsedTime = parsed.getTime()
       const hasValidTimestamp = !Number.isNaN(parsedTime)
-      const displayLabel = Number.isNaN(parsedTime)
-        ? `Snapshot ${index + 1}`
-        : parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      const displayLabel = opts?.nameOverride
+        ? opts.nameOverride
+        : Number.isNaN(parsedTime)
+          ? `Snapshot ${index + 1}`
+          : parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 
       const row: Record<string, number | string> = {
         snapshotId: entry.snapshotId,
         name: displayLabel,
-        timestamp: entry.timestamp,
-        xValue: hasValidTimestamp ? parsedTime : index,
+        timestamp,
+        xValue: opts?.xValueOverride ?? (hasValidTimestamp ? parsedTime : index),
       }
 
       categoryKeys.forEach((key) => {
@@ -230,6 +235,41 @@ export default function Statistics() {
 
     return rows
   }, [snapshots, categoryKeys])
+
+  const xAxisConfig = useMemo<{
+    ticks: number[]
+    domain: [number, number] | ['dataMin', 'dataMax']
+  }>(() => {
+    const values = stackedAreaData
+      .map((row) => Number(row.xValue))
+      .filter((value) => Number.isFinite(value))
+
+    if (values.length === 0) return { ticks: [], domain: ['dataMin', 'dataMax'] }
+
+    const min = Math.min(...values)
+    const max = Math.max(...values)
+
+    const start = new Date(min)
+    start.setHours(0, 0, 0, 0)
+
+    const end = new Date(max)
+    end.setHours(0, 0, 0, 0)
+
+    const startMs = start.getTime()
+    const endMs = end.getTime()
+
+    const tickValues: number[] = []
+    for (let t = startMs; t <= endMs; t += DAY_MS) {
+      tickValues.push(t)
+    }
+
+    const domainEnd = endMs + DAY_MS
+
+    return {
+      ticks: tickValues.length > 0 ? tickValues : [startMs],
+      domain: [startMs, domainEnd],
+    }
+  }, [stackedAreaData])
 
   const capturedLabel = formatCapturedAt(snapshot?.timestamp)
   const hasData = chartData.length > 0
@@ -344,17 +384,17 @@ export default function Statistics() {
                     <XAxis
                       dataKey="xValue"
                       type="number"
+                      scale="time"
                       tickLine={false}
                       axisLine={false}
-                      ticks={stackedAreaData.map((row) => Number(row.xValue))}
+                      ticks={xAxisConfig.ticks.length > 0 ? xAxisConfig.ticks : undefined}
+                      domain={xAxisConfig.domain}
                       tickFormatter={(value) => {
-                        const match = stackedAreaData.find(
-                          (row) => Number(row.xValue) === Number(value),
-                        )
-                        const name = match?.name
-                        return typeof name === 'string' ? name : ''
+                        const parsed = new Date(Number(value))
+                        return Number.isNaN(parsed.getTime())
+                          ? ''
+                          : parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
                       }}
-                      domain={['dataMin', 'dataMax']}
                     />
                     <YAxis tickLine={false} axisLine={false} />
                     <Tooltip
