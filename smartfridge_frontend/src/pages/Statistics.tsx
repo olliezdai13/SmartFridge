@@ -177,7 +177,11 @@ export default function Statistics() {
   const stackedAreaData = useMemo(() => {
     if (snapshots.length === 0 || categoryKeys.length === 0) return []
 
-    return snapshots.map((entry, index) => {
+    const buildRow = (
+      entry: CompositionSnapshot,
+      index: number,
+      opts?: { nameOverride?: string; timestampOverride?: string; xValueOverride?: number },
+    ) => {
       const counts = new Map<string, number>()
       categoryKeys.forEach((key) => counts.set(key, 0))
 
@@ -208,7 +212,23 @@ export default function Statistics() {
       })
 
       return row
-    })
+    }
+
+    const rows = snapshots.map((entry, index) => buildRow(entry, index))
+
+    const latest = snapshots[snapshots.length - 1]
+    const now = new Date()
+    if (latest) {
+      rows.push(
+        buildRow(latest, snapshots.length, {
+          nameOverride: 'Now',
+          timestampOverride: now.toISOString(),
+          xValueOverride: now.getTime(),
+        }),
+      )
+    }
+
+    return rows
   }, [snapshots, categoryKeys])
 
   const capturedLabel = formatCapturedAt(snapshot?.timestamp)
