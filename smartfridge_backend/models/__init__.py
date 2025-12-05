@@ -6,6 +6,7 @@ import os
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum
 from typing import Any, Literal, Optional
 
 from sqlalchemy import (
@@ -80,6 +81,31 @@ class Product(Base):
     snapshot_items: Mapped[list["SnapshotItem"]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
     )
+
+
+class ProductCategory(str, Enum):
+    """Supported food group buckets for products."""
+
+    FRUITS_VEGETABLES = "Vegetables, salad and fruit"
+    GRAINS_STARCH = "Wholemeal cereals and breads, potatoes, pasta and rice"
+    DAIRY = "Milk, yogurt and cheese"
+    PROTEIN_FOODS = "Meat, poultry, fish, eggs, beans and nuts"
+    FATS_OILS = "Fats, spreads and oils"
+    PROCESSED_FOODS = "Processed foods, drinks"
+    OTHER = "Other"
+
+    @classmethod
+    def values(cls) -> set[str]:
+        return {entry.value for entry in cls}
+
+    @classmethod
+    def key_value_map(cls) -> dict[str, str]:
+        """Return a mapping of enum member names to their display values."""
+        return {entry.name: entry.value for entry in cls}
+
+    @classmethod
+    def keys(cls) -> set[str]:
+        return {entry.name for entry in cls}
 
 
 class FridgeSnapshot(TimestampMixin, Base):

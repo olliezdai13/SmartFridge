@@ -21,7 +21,7 @@ class VisionLLMSettings:
     """Configuration required to talk to the vision model."""
 
     api_key: str
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-5-mini"
     system_prompt: Optional[str] = None
 
 
@@ -31,6 +31,15 @@ class VisionLLMResult:
 
     raw_text: str
     parsed_json: Any | None
+
+
+@dataclass
+class TextLLMSettings:
+    """Configuration required to talk to a text-only model."""
+
+    api_key: str
+    model: str = "gpt-5-mini"
+    system_prompt: Optional[str] = None
 
 
 class VisionLLMClient:
@@ -127,7 +136,75 @@ class VisionLLMClient:
             return None
 
 
+class TextLLMClient:
+    """Minimal client for JSON-friendly text prompts."""
+
+    def __init__(self, settings: TextLLMSettings) -> None:
+        self._settings = settings
+        self._client = OpenAI(api_key=settings.api_key)
+
+    def run_prompt(
+        self, *, prompt: str, system_prompt: str | None = None
+    ) -> VisionLLMResult:
+        """Send a text-only prompt to the configured LLM."""
+
+        user_text = (prompt or "").strip()
+        if not user_text:
+            raise ValueError("prompt is required")
+
+        merged_system_prompt = (system_prompt or self._settings.system_prompt) or ""
+        content = []
+        if merged_system_prompt:
+            content.append(
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": merged_system_prompt,
+                        }
+                    ],
+                }
+            )
+
+        content.append(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": user_text},
+                ],
+            }
+        )
+
+        try:
+            response: Response = self._client.responses.create(
+                model=self._settings.model,
+                input=content,
+            )
+        except TimeoutException as e:
+            logger.error("OpenAI / HTTP timeout: %r", e)
+            raise
+        except RequestError as e:
+            logger.error("OpenAI / HTTP network error: %r", e)
+            raise
+        except Exception:
+            logger.exception("OpenAI response error")
+            raise
+
+        output_text = response.output_text
+        return VisionLLMResult(
+            raw_text=output_text,
+            parsed_json=VisionLLMClient._attempt_json_parse(output_text),
+        )
+
+
 def init_vision_llm_client(settings: VisionLLMSettings) -> VisionLLMClient:
     """Create a ``VisionLLMClient`` instance from the provided settings."""
 
     return VisionLLMClient(settings)
+
+
+def init_text_llm_client(settings: TextLLMSettings) -> TextLLMClient:
+    """Create a ``TextLLMClient`` instance from the provided settings."""
+
+    return TextLLMClient(settings)

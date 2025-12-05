@@ -15,17 +15,21 @@ from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from smartfridge_backend.models import FridgeSnapshot, Job
+from smartfridge_backend.services.llm import TextLLMClient, VisionLLMClient
 from smartfridge_backend.services.ingestion import (
     PROCESS_SNAPSHOT_JOB_TYPE,
     IngestionError,
     process_snapshot,
 )
+from smartfridge_backend.services.product_categorization import (
+    CATEGORY_UPDATE_BATCH_LIMIT,
+    ProductCategorizationError,
+    apply_categories_to_products,
+)
 from smartfridge_backend.services.storage import (
     S3SnapshotStorage,
     SnapshotStorageError,
 )
-from smartfridge_backend.services.uploads import StoredImage
-from smartfridge_backend.services.llm import VisionLLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +55,14 @@ class SnapshotJobWorker:
         storage: S3SnapshotStorage,
         llm_client: VisionLLMClient,
         *,
+        text_llm_client: TextLLMClient | None = None,
         settings: WorkerSettings | None = None,
         worker_id: str | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._storage = storage
         self._llm_client = llm_client
+        self._text_llm_client = text_llm_client
         self._settings = settings or WorkerSettings()
         self._worker_id = worker_id or f"worker-{uuid.uuid4().hex[:8]}"
         self._stop_event = threading.Event()
@@ -124,6 +130,8 @@ class SnapshotJobWorker:
             except Exception as exc:  # noqa: BLE001 - we re-raise after cleanup
                 session.rollback()
                 self._handle_job_failure(job.id, exc)
+            else:
+                self._maybe_update_product_categories()
             return True
         finally:
             session.close()
@@ -216,6 +224,45 @@ class SnapshotJobWorker:
             "job completed successfully",
             extra={"job_id": str(job.id), "snapshot_id": str(job.snapshot_id)},
         )
+
+    def _maybe_update_product_categories(self) -> None:
+        if self._text_llm_client is None:
+            return
+
+        session = self._session_factory()
+        try:
+            updated_count, total_products = apply_categories_to_products(
+                session=session,
+                llm_client=self._text_llm_client,
+                limit=CATEGORY_UPDATE_BATCH_LIMIT,
+            )
+
+            if total_products == 0:
+                return
+
+            if updated_count == 0:
+                session.rollback()
+                logger.warning(
+                    "LLM did not return categories for uncategorized products"
+                )
+                return
+
+            session.commit()
+            logger.info(
+                "worker updated product categories",
+                extra={
+                    "updated_count": updated_count,
+                    "total_products": total_products,
+                },
+            )
+        except ProductCategorizationError as exc:
+            session.rollback()
+            logger.warning("category LLM failure: %s", exc)
+        except SQLAlchemyError:
+            session.rollback()
+            logger.exception("failed to update product categories")
+        finally:
+            session.close()
 
     def _handle_job_failure(self, job_id, exc: Exception) -> None:
         logger.warning("job %s failed: %s", job_id, exc)

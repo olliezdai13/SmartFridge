@@ -1,10 +1,17 @@
-Time to make some new UI components, visualizations, and update the Dashboard.
+New feature: Ingredient categorization and composition.
 
-Dashboard: UI component & major route
-- Features a carousel UI component with a list of SnapshotCard
+Create a product categories enum: 
+fruits
+vegetables
+grains
+protein_foods
+dairy_and_alternatives
+fats_and_oils
+processed_items
+other
 
-SnapshotCard: UI component 
-- A portrait-orientation card with gently rounded corners
-- at the top, should show the latest fridge picture
-- at the bottom, should have a list of the latest fridge contents and quantities
-- the Dashboard's carousel component renders these, and you can flip to prior / latter cards (no cycle)
+
+Create a new endpoint, "POST /update_categories":
+- Collects all `product` entries that don't have a value for `category`. 
+- Makes an LLM call to GPT 5 mini, prompting the LLM to assign each product a category from the available options.
+- If the result is JSON parseable and has correct format, and no invalid product categories, then update the categories.

@@ -13,7 +13,9 @@ from smartfridge_backend.config import (
 )
 from smartfridge_backend.models import get_database_url
 from smartfridge_backend.services.llm import (
+    TextLLMSettings,
     VisionLLMSettings,
+    init_text_llm_client,
     init_vision_llm_client,
 )
 from smartfridge_backend.services.worker import SnapshotJobWorker, WorkerSettings
@@ -77,6 +79,12 @@ def create_app() -> Flask:
     )
 
     if llm_api_key:
+        app.extensions["text_llm_client"] = init_text_llm_client(
+            TextLLMSettings(
+                api_key=llm_api_key,
+                model=llm_model,
+            )
+        )
         app.extensions["vision_llm_client"] = init_vision_llm_client(
             VisionLLMSettings(
                 api_key=llm_api_key,
@@ -145,6 +153,7 @@ def _maybe_start_worker(app: Flask) -> None:
     sessionmaker = app.extensions.get("db_sessionmaker")
     storage = app.extensions.get("snapshot_storage")
     llm_client = app.extensions.get("vision_llm_client")
+    text_llm_client = app.extensions.get("text_llm_client")
 
     if not sessionmaker or not storage or not llm_client:
         app.logger.info(
@@ -161,6 +170,7 @@ def _maybe_start_worker(app: Flask) -> None:
         session_factory=sessionmaker,
         storage=storage,
         llm_client=llm_client,
+        text_llm_client=text_llm_client,
         settings=WorkerSettings(),
     )
     app.logger.info(
