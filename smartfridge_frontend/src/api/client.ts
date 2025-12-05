@@ -34,13 +34,18 @@ export class ApiError extends Error {
 
 export class ApiClient {
   private readonly baseUrl: string
+  private refreshPromise: Promise<boolean> | null = null
 
   constructor(baseUrl = DEFAULT_API_BASE_URL) {
     this.baseUrl = baseUrl
   }
 
+  private normalizePath(path: string) {
+    return path.startsWith('/') ? path : `/${path}`
+  }
+
   private buildUrl(path: string) {
-    const normalized = path.startsWith('/') ? path : `/${path}`
+    const normalized = this.normalizePath(path)
     return `${this.baseUrl}${normalized}`
   }
 
@@ -91,7 +96,37 @@ export class ApiClient {
     return { ...init, headers }
   }
 
-  async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private shouldAttemptRefresh(path: string, status: number, attemptedRefresh: boolean) {
+    if (attemptedRefresh) return false
+    if (status !== 401 && status !== 403) return false
+
+    const normalized = this.normalizePath(path)
+    const nonRefreshablePaths = new Set(['/auth/login', '/auth/signup', '/auth/logout', '/auth/refresh'])
+    return !nonRefreshablePaths.has(normalized)
+  }
+
+  private async refreshTokens(): Promise<boolean> {
+    if (this.refreshPromise) return this.refreshPromise
+
+    this.refreshPromise = (async () => {
+      try {
+        const response = await fetch(this.buildUrl('/auth/refresh'), {
+          method: 'POST',
+          credentials: 'include',
+        })
+        return response.ok
+      } catch {
+        return false
+      } finally {
+        this.refreshPromise = null
+      }
+    })()
+
+    return this.refreshPromise
+  }
+
+  private async requestWithRefresh<T>(path: string, init: RequestInit, attemptedRefresh: boolean): Promise<T> {
+    const normalizedPath = this.normalizePath(path)
     const requestInit = this.withJsonHeaders(
       {
         credentials: 'include',
@@ -100,8 +135,20 @@ export class ApiClient {
       init.body,
     )
 
-    const response = await fetch(this.buildUrl(path), requestInit)
-    return this.handleResponse<T>(path, response)
+    const response = await fetch(this.buildUrl(normalizedPath), requestInit)
+
+    if (this.shouldAttemptRefresh(normalizedPath, response.status, attemptedRefresh)) {
+      const refreshed = await this.refreshTokens()
+      if (refreshed) {
+        return this.requestWithRefresh<T>(normalizedPath, init, true)
+      }
+    }
+
+    return this.handleResponse<T>(normalizedPath, response)
+  }
+
+  async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    return this.requestWithRefresh<T>(path, init, false)
   }
 }
 
