@@ -21,7 +21,7 @@ SPOONACULAR_FIND_BY_INGREDIENTS_URL = (
     "https://api.spoonacular.com/recipes/findByIngredients"
 )
 SPOONACULAR_API_KEY_ENV = "SPOONACULAR_API_KEY"
-_DEFAULT_RECIPE_LIMIT = 10
+_DEFAULT_RECIPE_LIMIT = 6
 _SPOONACULAR_TIMEOUT_SECONDS = 10
 _ParamValue = str | bytes | int | float | bool | Sequence[str | bytes | int | float | bool]
 _RequestParams = Mapping[str, _ParamValue]
@@ -31,6 +31,7 @@ def _summarize_recipe(recipe: Mapping[str, Any]) -> dict[str, Any]:
     """Return only the recipe fields we expose to the client."""
 
     used_ingredients = []
+    missed_ingredients = []
     for ingredient in recipe.get("usedIngredients") or []:
         name = ingredient.get("name") or ingredient.get("originalName")
         if not name:
@@ -47,12 +48,29 @@ def _summarize_recipe(recipe: Mapping[str, Any]) -> dict[str, Any]:
 
         used_ingredients.append(entry)
 
+    for ingredient in recipe.get("missedIngredients") or []:
+        name = ingredient.get("name") or ingredient.get("originalName")
+        if not name:
+            continue
+
+        entry: dict[str, Any] = {
+            "name": name,
+            "amount": ingredient.get("amount"),
+        }
+
+        unit = ingredient.get("unit")
+        if unit:
+            entry["unit"] = unit
+
+        missed_ingredients.append(entry)
+
     return {
         "title": recipe.get("title"),
         "image": recipe.get("image"),
-        "missedIngredientCount": recipe.get("missedIngredientCount", 0),
+        "missedIngredientCount": recipe.get("missedIngredientCount", len(missed_ingredients)),
         "usedIngredientCount": recipe.get("usedIngredientCount", len(used_ingredients)),
         "usedIngredients": used_ingredients,
+        "missedIngredients": missed_ingredients,
     }
 
 
