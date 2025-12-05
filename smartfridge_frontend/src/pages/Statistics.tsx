@@ -190,7 +190,9 @@ export default function Statistics() {
       })
 
       const parsed = new Date(entry.timestamp)
-      const displayLabel = Number.isNaN(parsed.getTime())
+      const parsedTime = parsed.getTime()
+      const hasValidTimestamp = !Number.isNaN(parsedTime)
+      const displayLabel = Number.isNaN(parsedTime)
         ? `Snapshot ${index + 1}`
         : parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 
@@ -198,6 +200,7 @@ export default function Statistics() {
         snapshotId: entry.snapshotId,
         name: displayLabel,
         timestamp: entry.timestamp,
+        xValue: hasValidTimestamp ? parsedTime : index,
       }
 
       categoryKeys.forEach((key) => {
@@ -318,17 +321,34 @@ export default function Statistics() {
                     margin={{ top: 12, right: 24, left: 0, bottom: 0 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                    <XAxis
+                      dataKey="xValue"
+                      type="number"
+                      tickLine={false}
+                      axisLine={false}
+                      ticks={stackedAreaData.map((row) => Number(row.xValue))}
+                      tickFormatter={(value) => {
+                        const match = stackedAreaData.find(
+                          (row) => Number(row.xValue) === Number(value),
+                        )
+                        const name = match?.name
+                        return typeof name === 'string' ? name : ''
+                      }}
+                      domain={['dataMin', 'dataMax']}
+                    />
                     <YAxis tickLine={false} axisLine={false} />
                     <Tooltip
                       labelFormatter={(label, payload) => {
-                        const ts = (payload?.[0]?.payload as { timestamp?: string } | undefined)
-                          ?.timestamp
+                        const ts =
+                          typeof label === 'number'
+                            ? (payload?.[0]?.payload as { timestamp?: string } | undefined)
+                                ?.timestamp
+                            : String(label)
                         const parsed = ts ? new Date(ts) : null
                         if (parsed && !Number.isNaN(parsed.getTime())) {
                           return `Captured ${parsed.toLocaleString()}`
                         }
-                        return `Snapshot ${label}`
+                        return typeof label === 'string' ? label : `Snapshot ${label}`
                       }}
                       contentStyle={{
                         borderRadius: 12,
@@ -340,7 +360,7 @@ export default function Statistics() {
                     {areaSeries.map((series) => (
                       <Area
                         key={series.key}
-                        type="monotone"
+                        type="stepAfter"
                         dataKey={series.key}
                         name={series.label}
                         stackId="composition"
