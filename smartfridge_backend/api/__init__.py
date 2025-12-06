@@ -3,7 +3,6 @@
 from flask import Flask
 
 from .auth import attach_user_from_access_cookie, bp as auth_bp
-from .products import bp as products_bp
 from .recipes import bp as recipes_bp
 from .statistics import bp as statistics_bp
 from .snapshot import bp as snapshot_bp
@@ -15,7 +14,6 @@ def init_app(app: Flask) -> None:
     app.before_request(attach_user_from_access_cookie)
 
     app.register_blueprint(auth_bp)
-    app.register_blueprint(products_bp)
     app.register_blueprint(recipes_bp)
     app.register_blueprint(statistics_bp)
     app.register_blueprint(snapshot_bp)
