@@ -147,7 +147,7 @@ function App() {
               <span className="brand-mark">SF</span>
               <div className="brand-text">
                 <span className="brand-title">SmartFridge</span>
-                <span className="brand-subtitle">Freshness at a glance</span>
+                <span className="brand-subtitle">Zero-effort fridge insights</span>
               </div>
             </div>
             <nav className="nav-links">
