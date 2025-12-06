@@ -1,6 +1,8 @@
+import os
 import unittest
 from datetime import timedelta
 from http.cookies import SimpleCookie
+from unittest import mock
 
 from flask import Flask, make_response
 
@@ -9,6 +11,8 @@ from smartfridge_backend.services.auth_tokens import (
     apply_auth_cookies,
     clear_auth_cookies,
     decode_token,
+    DEFAULT_ACCESS_TOKEN_TTL,
+    DEFAULT_REFRESH_TOKEN_TTL,
     issue_token_pair,
 )
 
@@ -97,6 +101,35 @@ class AuthTokenTests(unittest.TestCase):
             self.assertEqual(
                 cleared[self.settings.refresh_cookie_name]["max-age"], "0"
             )
+
+    @mock.patch.dict(
+        os.environ,
+        {
+            "SMARTFRIDGE_AUTH_SECRET": "env-secret",
+            "SMARTFRIDGE_ACCESS_TOKEN_TTL_MINUTES": "120",
+            "SMARTFRIDGE_REFRESH_TOKEN_TTL_DAYS": "45",
+        },
+        clear=False,
+    )
+    def test_load_settings_from_env_with_custom_ttls(self):
+        settings = AuthSettings.load(app=None)
+        self.assertEqual(settings.secret, "env-secret")
+        self.assertEqual(settings.access_token_ttl, timedelta(minutes=120))
+        self.assertEqual(settings.refresh_token_ttl, timedelta(days=45))
+
+    @mock.patch.dict(
+        os.environ,
+        {
+            "SMARTFRIDGE_AUTH_SECRET": "env-secret",
+            "SMARTFRIDGE_ACCESS_TOKEN_TTL_MINUTES": "invalid",
+            "SMARTFRIDGE_REFRESH_TOKEN_TTL_DAYS": "0",
+        },
+        clear=False,
+    )
+    def test_invalid_env_ttls_fall_back_to_defaults(self):
+        settings = AuthSettings.load(app=None)
+        self.assertEqual(settings.access_token_ttl, DEFAULT_ACCESS_TOKEN_TTL)
+        self.assertEqual(settings.refresh_token_ttl, DEFAULT_REFRESH_TOKEN_TTL)
 
 
 if __name__ == "__main__":

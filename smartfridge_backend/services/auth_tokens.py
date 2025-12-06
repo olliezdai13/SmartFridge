@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from dataclasses import dataclass
@@ -59,7 +60,24 @@ class AuthSettings:
         if not secret:
             raise RuntimeError("SMARTFRIDGE_AUTH_SECRET is not configured")
 
-        return cls(secret=secret)
+        access_token_ttl = _load_token_ttl(
+            "SMARTFRIDGE_ACCESS_TOKEN_TTL_MINUTES",
+            DEFAULT_ACCESS_TOKEN_TTL,
+            unit="minutes",
+            app=app,
+        )
+        refresh_token_ttl = _load_token_ttl(
+            "SMARTFRIDGE_REFRESH_TOKEN_TTL_DAYS",
+            DEFAULT_REFRESH_TOKEN_TTL,
+            unit="days",
+            app=app,
+        )
+
+        return cls(
+            secret=secret,
+            access_token_ttl=access_token_ttl,
+            refresh_token_ttl=refresh_token_ttl,
+        )
 
 
 @dataclass(frozen=True)
@@ -222,3 +240,43 @@ def _try_get_current_app():
         return current_app._get_current_object()
     except RuntimeError:
         return None
+
+
+def _load_token_ttl(
+    env_var: str,
+    default: timedelta,
+    *,
+    unit: Literal["minutes", "days"],
+    app=None,
+) -> timedelta:
+    """Read a token TTL from the environment with validation and a fallback."""
+
+    raw_value = os.environ.get(env_var)
+    if raw_value is None:
+        return default
+
+    logger = getattr(app, "logger", None) or logging.getLogger(__name__)
+
+    try:
+        numeric_value = int(raw_value)
+    except ValueError:
+        logger.warning(
+            "Invalid %s=%r; falling back to default %s",
+            env_var,
+            raw_value,
+            default,
+        )
+        return default
+
+    if numeric_value <= 0:
+        logger.warning(
+            "%s must be positive; got %s. Falling back to default %s",
+            env_var,
+            numeric_value,
+            default,
+        )
+        return default
+
+    if unit == "minutes":
+        return timedelta(minutes=numeric_value)
+    return timedelta(days=numeric_value)
